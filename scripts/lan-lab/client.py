@@ -53,8 +53,8 @@ def main(arg):
             isolated = local.connect_ex((SERVER_IP, 8765)) != 0
         with http.client.HTTPSConnection(authority, context=context, timeout=4) as conn:
             conn.request("GET", "/api/status")
-            response = conn.getresponse()
             der = conn.sock.getpeercert(binary_form=True)
+            response = conn.getresponse()
             status = response.status
             response.read()
         fingerprint = hashlib.sha256(der).hexdigest()
