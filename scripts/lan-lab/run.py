@@ -109,7 +109,10 @@ def main(binary):
             "trusted_tls": result["trusted_tls"], "fingerprint_matches": result["fingerprint_matches"],
             "loopback_isolated": result["loopback_isolated"], "owner_state_unavailable": result["owner_state_unavailable"],
             "bad_host_rejected": result["bad_host_rejected"], "bad_origin_rejected": result["bad_origin_rejected"],
-            "owner_routes_blocked": result["owner_routes_blocked"],
+            "owner_access_blocked": result["owner_access_blocked"],
+            "owner_pairing_blocked": result["owner_pairing_blocked"],
+            "owner_devices_blocked": result["owner_devices_blocked"],
+            "owner_shutdown_blocked": result["owner_shutdown_blocked"],
             "bootstrap_exchange_blocked": result["bootstrap_exchange_blocked"],
         }
         failed = [name for name, passed in expected_checks.items() if not passed]

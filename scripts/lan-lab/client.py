@@ -61,9 +61,12 @@ def main(arg):
         expected = arg["fingerprint"].replace(":", "").lower()
         bad_host = request("/api/status", host="attacker.invalid")[0]
         bad_origin = request("/api/status", origin="https://attacker.invalid")[0]
-        blocked = all(request(path, method, {})[0] == 403 for path, method in [
-            ("/api/access", "GET"), ("/api/devices/pairing", "POST"),
-            ("/api/devices", "GET"), ("/api/daemon/shutdown", "POST")])
+        owner_routes = {
+            "owner_access_blocked": request("/api/access", "GET")[0],
+            "owner_pairing_blocked": request("/api/devices/pairing", "POST", {})[0],
+            "owner_devices_blocked": request("/api/devices", "GET")[0],
+            "owner_shutdown_blocked": request("/api/daemon/shutdown", "POST", {})[0],
+        }
         # The active bootstrap ticket is created by the local owner fixture and passed in only for this probe.
         # Generate it with the preceding unauthenticated owner-local call for the remote exchange check.
         ticket = arg.get("bootstrap_ticket", "")
@@ -75,15 +78,14 @@ def main(arg):
                 not os.path.exists("/state/data/api.token") and
                 not os.path.exists("/state/data/ownbot.db"),
                 "loopback_isolated": isolated, "bad_host_rejected": bad_host == 403,
-                "bad_origin_rejected": bad_origin == 403, "owner_routes_blocked": blocked,
+                "bad_origin_rejected": bad_origin == 403,
+                **{name: route_status == 403 for name, route_status in owner_routes.items()},
                 "bootstrap_exchange_blocked": exchange == 403}
-        statuses = {"lan": status, "bad_host": bad_host, "bad_origin": bad_origin,
-                    "bootstrap_exchange": exchange}
+        statuses = {"trusted_tls": status, "bad_host_rejected": bad_host,
+                    "bad_origin_rejected": bad_origin, "bootstrap_exchange_blocked": exchange,
+                    **owner_routes}
         for name, passed in result.items():
             require(name, passed, statuses.get(name))
-        for name, status_code in statuses.items():
-            if name != "lan":
-                require(name + "_status", status_code == 403, status_code)
         return result
     if op == "pair":
         status, data = request("/api/devices/pair", "POST", {"secret": arg["secret"], "name": "CI LAN device"})
