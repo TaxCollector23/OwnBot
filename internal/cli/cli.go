@@ -169,7 +169,7 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 	if daemonHealthy(apiURL) {
 		_, _ = fmt.Fprintln(stdout, "OwnYourBot daemon is already running.")
 		if open {
-			openDashboard(apiURL)
+			return openOwnerDashboard(apiURL, dataDir)
 		}
 		return nil
 	}
@@ -195,30 +195,37 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
+	logPath := filepath.Join(dataDir, "daemon.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("open daemon log: %w", err)
+	}
+	if err := logFile.Chmod(0600); err != nil {
+		_ = logFile.Close()
+		return fmt.Errorf("secure daemon log: %w", err)
+	}
 	cmd := exec.Command(daemonPath, args...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Stdin = nil
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	configureDetachedProcess(cmd)
 	if err = cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return fmt.Errorf("start OwnYourBot daemon: %w", err)
 	}
-	wait := make(chan error, 1)
-	go func() { wait <- cmd.Wait() }()
+	_ = logFile.Close()
+	_ = cmd.Process.Release()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if daemonHealthy(apiURL) {
 			_, _ = fmt.Fprintf(stdout, "OwnYourBot daemon is ready at %s\n", apiURL)
 			if open {
-				openDashboard(apiURL)
+				return openOwnerDashboard(apiURL, dataDir)
 			}
 			return nil
 		}
-		select {
-		case childErr := <-wait:
-			return fmt.Errorf("daemon exited before becoming ready: %w", childErr)
-		default:
-		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return errors.New("daemon did not become ready; check its state directory and listener configuration")
+	return fmt.Errorf("daemon did not become ready; inspect %s and check its state directory and listener configuration", logPath)
 }
 
 func printWelcome(w io.Writer) {

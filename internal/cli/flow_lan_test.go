@@ -126,3 +126,37 @@ func TestDaemonStartLanRejectsDifferentExistingLANAddress(t *testing.T) {
 		t.Fatalf("unexpected result: %v", err)
 	}
 }
+
+func TestExistingDaemonStartOpensOneTimeOwnerDashboardSession(t *testing.T) {
+	dataDir := tokenDir(t)
+	var tokenIssued bool
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/status":
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+		case "/api/access/bootstrap":
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testToken {
+				t.Errorf("bootstrap was not owner authenticated")
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body) != 0 {
+				t.Errorf("bootstrap body=%v err=%v", body, err)
+			}
+			tokenIssued = true
+			_, _ = io.WriteString(w, `{"ticket":"fixture-one-use-bootstrap-ticket"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	var opened string
+	previousLauncher := launchOwnerDashboard
+	launchOwnerDashboard = func(address string) bool { opened = address; return true }
+	defer func() { launchOwnerDashboard = previousLauncher }()
+	if err := startDaemon(nil, api.URL, dataDir, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if !tokenIssued || !strings.Contains(opened, "/dashboard#bootstrap=fixture-one-use-bootstrap-ticket") || strings.Contains(opened, testToken) {
+		t.Fatalf("bootstrap not used safely: issued=%t url=%q", tokenIssued, opened)
+	}
+}

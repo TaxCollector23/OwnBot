@@ -77,7 +77,7 @@ func runDaemon(args []string, stdout, stderr io.Writer) error {
 		if access.Fingerprint != "" {
 			_, _ = fmt.Fprintf(stdout, "Certificate fingerprint: %s\n", access.Fingerprint)
 		}
-		return nil
+		return openOwnerDashboard(apiURL, cfg.DataDir)
 	}
 	if err := startDaemon(args[1:], apiURL, cfg.DataDir, stdout, true); err != nil {
 		return err
@@ -216,12 +216,45 @@ func daemonAddressAvailable(apiURL string) (bool, error) {
 	return true, nil
 }
 
-func openDashboard(apiURL string) {
-	address := strings.TrimRight(apiURL, "/") + "/dashboard"
-	openURL(address)
+func openOwnerDashboard(apiURL, dataDir string) error {
+	address, err := createOwnerDashboardURL(apiURL, dataDir)
+	if err != nil {
+		return err
+	}
+	if !launchOwnerDashboard(address) {
+		localDashboard := strings.TrimRight(apiURL, "/") + "/dashboard"
+		_, _ = fmt.Fprintf(os.Stderr, "Could not open the dashboard automatically. Open %s on the host; if it stays locked, rerun the same `ownyourbot daemon start` command with the same --listen and --data-dir options to open a fresh owner session.\n", localDashboard)
+	}
+	return nil
+}
+
+var launchOwnerDashboard = tryOpenURL
+
+func createOwnerDashboardURL(apiURL, dataDir string) (string, error) {
+	client, err := clientFor(apiURL, dataDir)
+	if err != nil {
+		return "", fmt.Errorf("could not authenticate to the local daemon for dashboard access: %w", err)
+	}
+	var bootstrap struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := client.Do(context.Background(), http.MethodPost, "/api/access/bootstrap", map[string]any{}, &bootstrap); err != nil {
+		return "", fmt.Errorf("could not create a one-time local dashboard session: %w", err)
+	}
+	if bootstrap.Ticket == "" {
+		return "", errors.New("daemon did not return a one-time dashboard ticket")
+	}
+	address := strings.TrimRight(apiURL, "/") + "/dashboard#bootstrap=" + url.QueryEscape(bootstrap.Ticket)
+	return address, nil
 }
 
 func openURL(address string) {
+	if !tryOpenURL(address) {
+		fmt.Fprintf(os.Stderr, "Open this address in your browser: %s\n", address)
+	}
+}
+
+func tryOpenURL(address string) bool {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -232,10 +265,10 @@ func openURL(address string) {
 		cmd = exec.Command("xdg-open", address)
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Open this address in your browser: %s\n", address)
-		return
+		return false
 	}
 	_ = cmd.Process.Release()
+	return true
 }
 
 func runInspect(args []string, stdin io.Reader, stdout, stderr io.Writer) error {

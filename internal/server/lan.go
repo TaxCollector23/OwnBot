@@ -121,7 +121,10 @@ func (s *Server) lanSecurity(next http.Handler) http.Handler {
 				s.pairDevice(w, r)
 				return
 			}
-			if r.URL.Path == "/api/devices/pairing" || r.URL.Path == "/api/devices" || r.URL.Path == "/api/access" || r.URL.Path == "/api/daemon/shutdown" || strings.HasPrefix(r.URL.Path, "/api/devices/") {
+			// Local owner bootstrap/session endpoints are never reachable through
+			// the paired-device listener. Keep the whole access route family
+			// blocked, including future subroutes.
+			if strings.HasPrefix(r.URL.Path, "/api/access") || r.URL.Path == "/api/devices/pairing" || r.URL.Path == "/api/devices" || r.URL.Path == "/api/daemon/shutdown" || strings.HasPrefix(r.URL.Path, "/api/devices/") {
 				http.Error(w, "local administrator required", http.StatusForbidden)
 				return
 			}

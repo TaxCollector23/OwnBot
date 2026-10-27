@@ -28,22 +28,25 @@ import (
 )
 
 type Server struct {
-	db             *sql.DB
-	token          string
-	mux            *http.ServeMux
-	registry       *engine.Registry
-	runLocks       sync.Map
-	modelClient    func(ModelConfig) models.Client
-	hosts          *mcp.HostManager
-	mcpMu          sync.Mutex
-	events         *events.Hub
-	lanMu          sync.RWMutex
-	lanAuthority   string
-	lanFingerprint string
-	pairMu         sync.Mutex
-	pairAttempts   map[string]pairAttempt
-	shutdownMu     sync.RWMutex
-	shutdown       func()
+	db               *sql.DB
+	token            string
+	mux              *http.ServeMux
+	registry         *engine.Registry
+	runLocks         sync.Map
+	modelClient      func(ModelConfig) models.Client
+	hosts            *mcp.HostManager
+	mcpMu            sync.Mutex
+	events           *events.Hub
+	lanMu            sync.RWMutex
+	lanAuthority     string
+	lanFingerprint   string
+	pairMu           sync.Mutex
+	pairAttempts     map[string]pairAttempt
+	shutdownMu       sync.RWMutex
+	shutdown         func()
+	localAuthMu      sync.Mutex
+	bootstrapTickets map[string]time.Time
+	localSessions    map[string]time.Time
 }
 
 func New(dir string) (*Server, error) {
@@ -59,7 +62,7 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt)}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time)}
 	if err = s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -183,6 +186,8 @@ CREATE TABLE IF NOT EXISTS device_pairings(secret_hash TEXT PRIMARY KEY,expires_
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/status", s.status)
 	s.mux.HandleFunc("GET /api/access", s.access)
+	s.mux.HandleFunc("POST /api/access/bootstrap", s.createLocalBootstrap)
+	s.mux.HandleFunc("POST /api/access/bootstrap/exchange", s.exchangeLocalBootstrap)
 	s.mux.HandleFunc("GET /api/devices", s.devices)
 	s.mux.HandleFunc("POST /api/devices/pairing", s.createPairing)
 	s.mux.HandleFunc("POST /api/devices/pair", s.pairDevice)
@@ -254,13 +259,35 @@ func (s *Server) security(next http.Handler) http.Handler {
 			}
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/status" {
+			if r.URL.Path == "/api/access/bootstrap/exchange" && r.Method == http.MethodPost {
+				if !loopbackPeer(r.RemoteAddr) {
+					http.Error(w, "loopback peer required", http.StatusForbidden)
+					return
+				}
+				origin := r.Header.Get("Origin")
+				if origin == "" || !matchingLoopbackOrigin(origin, r.Host, r.TLS != nil) {
+					http.Error(w, "same-origin request required", http.StatusForbidden)
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
 			if r.URL.Path == "/api/events" && r.Method == "GET" {
 				next.ServeHTTP(w, r)
 				return
 			}
 			header := r.Header.Get("Authorization")
 			a := strings.TrimPrefix(header, "Bearer ")
-			if !strings.HasPrefix(header, "Bearer ") || subtle.ConstantTimeCompare([]byte(a), []byte(s.token)) != 1 {
+			isMaster := strings.HasPrefix(header, "Bearer ") && subtle.ConstantTimeCompare([]byte(a), []byte(s.token)) == 1
+			if r.URL.Path == "/api/access/bootstrap" && !isMaster {
+				http.Error(w, "unauthorized", 401)
+				return
+			}
+			if r.URL.Path == "/api/daemon/shutdown" && !isMaster {
+				http.Error(w, "unauthorized", 401)
+				return
+			}
+			if !isMaster && (!strings.HasPrefix(header, "Bearer ") || !loopbackPeer(r.RemoteAddr) || !s.validLocalSession(a)) {
 				http.Error(w, "unauthorized", 401)
 				return
 			}

@@ -1,0 +1,32 @@
+name: Isolated LAN lab
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/lan-lab.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/lan-lab/**'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-lan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build Linux daemon
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o "$RUNNER_TEMP/ownbotd" ./cmd/ownbotd
+      - name: Exercise isolated LAN access
+        run: python3 scripts/lan-lab/run.py "$RUNNER_TEMP/ownbotd"

@@ -9,9 +9,12 @@
   const pairNameInput = document.querySelector('#pair-device-name');
   const isLoopbackHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
   let pairingSecret = '';
+  let bootstrapTicket = '';
   if (typeof window !== 'undefined') {
-    pairingSecret = new URLSearchParams((window.location.hash || '').replace(/^#/, '')).get('pair') || '';
-    if (pairingSecret) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    const fragment = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+    pairingSecret = fragment.get('pair') || '';
+    bootstrapTicket = fragment.get('bootstrap') || '';
+    if (pairingSecret || bootstrapTicket) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
   const pageMessage = document.querySelector('#page-message');
   const connectionLabel = document.querySelector('#connection-label');
@@ -88,7 +91,7 @@
       const rejection = pairedDevice
         ? 'This paired device was rejected. Pair it again from the host.'
         : isLoopbackHost
-          ? 'Access token was rejected. Check the token from ~/.ownbot/api.token and try again.'
+          ? 'The local owner session expired or was rejected. Run ownyourbot daemon start on the host to reconnect, or enter the owner API token below.'
           : 'Device access was rejected. Ask the owner to create a new pairing link from the host.';
       showMessage(rejection);
       throw new Error(rejection);
@@ -107,6 +110,31 @@
     if (response.status === 204) return null;
     const body = await response.text();
     return body ? JSON.parse(body) : null;
+  };
+
+  const redeemBootstrapTicket = async () => {
+    const ticket = bootstrapTicket;
+    bootstrapTicket = '';
+    const response = await fetch('/api/access/bootstrap/exchange', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {'Accept':'application/json', 'Content-Type':'application/json'},
+      body: JSON.stringify({ticket}),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      let reason = '';
+      try { reason = JSON.parse(body).error || ''; } catch {}
+      throw new Error(reason || 'The one-time owner link could not be redeemed.');
+    }
+    const result = await response.json();
+    if (!result?.token) throw new Error('The host did not return a local owner session. Run ownyourbot daemon start again.');
+    token = result.token;
+    pairedDevice = false;
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.removeItem(PAIRED_KEY);
+    showTokenPanel(false);
   };
 
   const setLoading = (selector, message) => { q(selector).innerHTML = `<div class="empty-inline">${esc(message)}</div>`; };
@@ -342,9 +370,9 @@
       if (token) await loadAccess();
       else {
         q('#access-state').textContent = 'Locked';
-        q('#access-status').textContent = 'Connect with the local API token to manage LAN access and paired devices.';
+        q('#access-status').textContent = 'Owner access is locked. Run ownyourbot daemon start in the host terminal to open a one-time owner session here.';
         q('#create-pairing-button').disabled = true;
-        setLoading('#devices-list', 'Connect with the local API token to view paired devices.');
+        setLoading('#devices-list', 'Run ownyourbot daemon start on the host to view paired devices.');
       }
     }
     await loadStatus();
@@ -465,7 +493,7 @@
       const connected = await loadAll();
       if (!connected) {
         showMessage(accessRejected
-          ? 'The local API rejected this token. Check the token and try again.'
+          ? 'The local owner session expired or was rejected. Run ownyourbot daemon start on the host to reconnect, or enter the owner API token below.'
           : 'Could not confirm access to the local API. Check the host and try again.');
         return;
       }
@@ -737,8 +765,16 @@
       await loadAgents();
     } catch (error) { showMessage(`Could not save prompt: ${error.message}`); }
   });
-  if (pairedDevice && !token && !pairingSecret) showTokenPanel(true);
-  if (!pairingSecret) {
-    loadAll();
-  }
+  if (pairedDevice && !token && !pairingSecret && !bootstrapTicket) showTokenPanel(true);
+  (async () => {
+    let bootstrapError = '';
+    if (bootstrapTicket) {
+      try { await redeemBootstrapTicket(); }
+      catch (error) { bootstrapError = `${error.message} Run ownyourbot daemon start again on the host with the same options to open a fresh owner session. No API token was requested or exposed in this link.`; }
+    }
+    if (!pairingSecret) {
+      await loadAll();
+      if (bootstrapError) showMessage(bootstrapError);
+    }
+  })();
 })();

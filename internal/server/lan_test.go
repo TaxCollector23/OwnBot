@@ -137,6 +137,80 @@ func TestPairingIsOneUseAndOwnerTokenIsRejectedOnLAN(t *testing.T) {
 	}
 }
 
+func TestIndependentPairedClientsHaveSeparateTokensAndRevocation(t *testing.T) {
+	s, owner := configuredLAN(t)
+	type client struct {
+		name   string
+		token  string
+		id     string
+		secret string
+	}
+	pairClient := func(name string) client {
+		t.Helper()
+		secret, _ := createPairingLink(t, s, owner)
+		token, device := pair(t, s, secret, name)
+		return client{name: name, token: token, id: device.ID, secret: secret}
+	}
+	phone := pairClient("Phone fixture")
+	tablet := pairClient("Tablet fixture")
+	if phone.token == tablet.token || phone.token == owner || tablet.token == owner || phone.id == tablet.id {
+		t.Fatal("independent clients did not receive distinct device credentials")
+	}
+	if w := lanRequest(t, s.LANHandler(), "POST", "/api/devices/pair", `{"secret":"`+phone.secret+`","name":"Replay fixture"}`, "https://"+testLANAuthority, ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("pairing credential replay: %d", w.Code)
+	}
+
+	// Each client keeps its own token, modeling separate browser tab storage.
+	clientGET := func(c client, path string) *httptest.ResponseRecorder {
+		t.Helper()
+		return lanRequest(t, s.LANHandler(), "GET", path, "", "https://"+testLANAuthority, c.token)
+	}
+	if w := clientGET(phone, "/api/agents"); w.Code != http.StatusOK {
+		t.Fatalf("phone fixture access: %d", w.Code)
+	}
+	if w := clientGET(tablet, "/api/agents"); w.Code != http.StatusOK {
+		t.Fatalf("tablet fixture access: %d", w.Code)
+	}
+	if w := clientGET(phone, "/api/runs"); w.Code != http.StatusOK {
+		t.Fatalf("authenticated run reads: %d", w.Code)
+	}
+	if w := lanRequest(t, s.LANHandler(), "GET", "/api/approvals", "", "https://"+testLANAuthority, ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated approvals: %d", w.Code)
+	}
+	if w := clientGET(phone, "/api/approvals"); w.Code != http.StatusOK {
+		t.Fatalf("authenticated approvals: %d", w.Code)
+	}
+	if w := clientGET(client{name: "unpaired fixture"}, "/api/agents"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("unpaired client: %d", w.Code)
+	}
+	if w := lanRequest(t, s.LANHandler(), "GET", "/api/agents", "", "https://"+testLANAuthority, owner); w.Code != http.StatusUnauthorized {
+		t.Fatalf("owner token accepted by paired-client endpoint: %d", w.Code)
+	}
+
+	w := request(t, s.Handler(), "DELETE", "/api/devices/"+phone.id, "{}", "127.0.0.1:8765", "http://127.0.0.1:8765", owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("revoke phone fixture: %d", w.Code)
+	}
+	if w = clientGET(phone, "/api/agents"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked phone fixture remained authorized: %d", w.Code)
+	}
+	if w = clientGET(tablet, "/api/agents"); w.Code != http.StatusOK {
+		t.Fatalf("revoking phone fixture affected tablet fixture: %d", w.Code)
+	}
+	deviceList := request(t, s.Handler(), "GET", "/api/devices", "", "127.0.0.1:8765", "", owner)
+	if deviceList.Code != http.StatusOK {
+		t.Fatalf("owner device list: %d", deviceList.Code)
+	}
+	for _, credential := range []string{owner, phone.token, tablet.token, phone.secret} {
+		if strings.Contains(deviceList.Body.String(), credential) {
+			t.Fatal("device list exposed an owner, device, or pairing credential")
+		}
+	}
+
+	// The fixture handler uses lanRequest's fixed simulated private-peer address;
+	// this validates server policy and client credential separation, not LAN hardware.
+}
+
 func TestPairingExpiresAndPersistedDeviceCanBeRevoked(t *testing.T) {
 	dir := privateTestDir(t)
 	s, err := New(dir)

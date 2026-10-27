@@ -29,7 +29,7 @@ The local API/dashboard listener defaults to `127.0.0.1:8765`. If another servic
 ownyourbot daemon start --lan --listen 127.0.0.1:18765
 ```
 
-Open `http://127.0.0.1:18765/dashboard` on the host. Stop this background daemon with `ownyourbot daemon stop --url http://127.0.0.1:18765` before restarting it. If you also changed `--data-dir`, pass that same directory to `daemon stop`. `ownyourbot daemon start` launches a background process and returns; Ctrl-C stops only a daemon started directly in the foreground, such as `./bin/ownbotd`.
+The start command opens the local dashboard with a one-time loopback-only bootstrap link. The link is kept in the URL fragment and expires after 60 seconds; the browser redeems it for a local owner session that lasts 30 minutes. The host API token is not placed in the link. To reopen a dashboard manually, run the same `ownyourbot daemon start` command on the host; it opens a fresh owner session for an already-running daemon. A manually entered owner API token remains a fallback. Stop this background daemon with `ownyourbot daemon stop --url http://127.0.0.1:18765` before restarting it. If you also changed `--data-dir`, pass that same directory to `daemon stop`. `ownyourbot daemon start` launches a background process and returns; Ctrl-C stops only a daemon started directly in the foreground, such as `./bin/ownbotd`.
 
 Use the address printed by the command. A different LAN IP can result in a new certificate and fingerprint. By default, the certificate and private key are kept in `~/.ownbot/lan.cert.pem` and `~/.ownbot/lan.key.pem`; if you set `--data-dir`, they are stored in that directory instead. Never share the private key.
 
@@ -64,7 +64,7 @@ Android certificate installation options vary by device and OS version. Google's
 
 ## Pair and revoke
 
-1. On the host, open `http://127.0.0.1:8765/dashboard` and connect with the local token in `~/.ownbot/api.token`.
+1. On the host, run `ownyourbot daemon start --lan` to open the local dashboard with an owner session. If the daemon is already running, the command opens a session for it if the LAN address matches the running configuration.
 2. In **LAN access**, create a pairing link and send it only to the intended device. The link contains a one-use credential and expires; anyone who gets it first can pair.
 3. Open the HTTPS link on the trusted device and submit a device name. The browser stores its device token in that browser tab's session storage; it never receives the host's API token.
 4. Revoke a device in the host dashboard's **Paired devices** list. Its next API request is rejected. Pair it again from the host if access is needed later.
@@ -78,7 +78,7 @@ Paired devices receive dashboard access, but cannot view LAN settings, create li
 - If the host reports no private LAN interface, connect it to Wi-Fi/Ethernet or pass `--lan-address PRIVATE_IP:8766` using its private IPv4 address.
 - If the host reports that a daemon is already running without LAN access, run `ownyourbot daemon stop`, then `ownyourbot daemon start --lan`.
 - If the certificate warning returns after the host IP changes, verify and trust the new fingerprint before pairing again.
-- If a paired device is rejected, create and use a fresh link on the host. The owner token is only entered on the host's loopback dashboard.
+- If the local dashboard is locked, rerun the same `ownyourbot daemon start` command on the host to open a fresh owner session. If a paired device is rejected, create and use a fresh link on the host. The owner token is never entered on a paired device.
 
 ## Not verified yet
 

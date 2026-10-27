@@ -24,7 +24,7 @@
     </div>
     <div id="page-message" class="page-message" role="status" hidden></div>
     <section id="token-panel" class="token-panel" hidden aria-labelledby="token-heading">
-      <div><div class="eyebrow">ACCESS</div><h2 id="token-heading">Connect to this host</h2><p id="owner-token-copy">Paste the API token from <code>~/.ownbot/api.token</code>. It stays in this browser tab and clears when the tab closes.</p><p id="paired-token-copy" hidden>This device no longer has access. Pair it again from the host, or forget this browser.</p><p id="remote-token-copy" hidden>Use a device pairing link created by the owner on the host to connect this browser.</p><button class="button outline small-button" id="forget-device-button" type="button" hidden>Forget this browser</button></div>
+      <div><div class="eyebrow">ACCESS</div><h2 id="token-heading">Connect to this host</h2><p id="owner-token-copy">Run <code>ownyourbot daemon start</code> in the host terminal to open a one-time owner session here. It lasts 30 minutes. You can also enter the owner API token below.</p><p id="paired-token-copy" hidden>This device no longer has access. Pair it again from the host, or forget this browser.</p><p id="remote-token-copy" hidden>Use a device pairing link created by the owner on the host to connect this browser.</p><button class="button outline small-button" id="forget-device-button" type="button" hidden>Forget this browser</button></div>
       <form id="token-form"><label for="api-token">Local API token</label><div class="token-input-row"><input id="api-token" name="token" type="password" autocomplete="off" spellcheck="false" required><button class="button primary small-button" type="submit">Connect</button></div></form>
     </section>
     <section id="pair-panel" class="token-panel pair-panel" hidden aria-labelledby="pair-heading">
@@ -36,7 +36,7 @@
       <p class="section-note">Start the daemon with LAN access enabled. Pairing links grant this browser its own access and expire after one use.</p>
       <div id="access-status" class="access-status" role="status" aria-live="polite">Checking LAN access…</div>
       <div class="access-command"><span>Start on your local network</span><code>ownyourbot daemon start --lan</code></div>
-      <div class="access-actions"><button class="button primary" id="create-pairing-button" type="button" disabled>Create pairing link</button></div>
+      <div class="access-actions"><button class="button primary" id="create-pairing-button" type="button" aria-describedby="access-status" disabled>Create pairing link</button></div>
       <div id="pairing-link-panel" class="pairing-link-panel" hidden>
         <label for="pairing-link">One-time pairing link</label>
         <div class="pairing-link-row"><input id="pairing-link" type="text" readonly spellcheck="false"><button class="button outline" id="copy-pairing-link" type="button">Copy link</button></div>

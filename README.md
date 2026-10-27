@@ -12,6 +12,7 @@ ownyourbot daemon start
 ```
 
 The dashboard opens at `http://127.0.0.1:8765/dashboard`. Its local API token is stored at `~/.ownbot/api.token`.
+When the CLI opens the dashboard, it uses a one-time loopback-only link to establish a 30-minute owner session in that browser tab. The API token is not placed in the link. If you open the URL manually and see a locked dashboard, run `ownyourbot daemon start` on the host to open an owner session.
 
 ## Pair a device on the same Wi-Fi
 
@@ -28,7 +29,7 @@ ownyourbot daemon stop
 ownyourbot daemon start --lan
 ```
 
-The CLI prints the HTTPS LAN address and certificate fingerprint. Open the local dashboard on the host, enter its API token, and create a one-use pairing link in **LAN access**. Open that link on the device you want to pair and give the device a name. The host dashboard lists paired devices and can revoke them.
+The CLI prints the HTTPS LAN address and certificate fingerprint, then opens the local dashboard with an owner session. Create a one-use pairing link in **LAN access**. Open that link on the device you want to pair and give the device a name. The host dashboard lists paired devices and can revoke them.
 
 The local API defaults to `127.0.0.1:8765`. If another service is using that port, select a free loopback port, for example `ownyourbot daemon start --lan --listen 127.0.0.1:18765`, and open `http://127.0.0.1:18765/dashboard` on the host. Stop that daemon with `ownyourbot daemon stop --url http://127.0.0.1:18765` before restarting it.
 
