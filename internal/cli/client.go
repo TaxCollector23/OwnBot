@@ -21,9 +21,10 @@ import (
 const DefaultAPIURL = "http://127.0.0.1:8765"
 
 type Client struct {
-	baseURL string
-	token   string
-	http    *http.Client
+	baseURL  string
+	token    string
+	http     *http.Client
+	verified bool
 }
 
 func NewClient(apiURL, dataDir string) (*Client, error) {
@@ -65,7 +66,38 @@ func NewClient(apiURL, dataDir string) (*Client, error) {
 	if _, err := hex.DecodeString(token); err != nil {
 		return nil, errors.New("local API token file is malformed")
 	}
-	return &Client{baseURL: strings.TrimRight(u.String(), "/"), token: token, http: directHTTPClient(5 * time.Minute)}, nil
+	baseURL := strings.TrimRight(u.String(), "/")
+	if err := verifyDaemonIdentity(baseURL); err != nil {
+		return nil, err
+	}
+	return &Client{baseURL: baseURL, token: token, http: directHTTPClient(5 * time.Minute), verified: true}, nil
+}
+
+func verifyDaemonIdentity(baseURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/status", nil)
+	if err != nil {
+		return errors.New("could not verify local daemon identity")
+	}
+	// This preflight intentionally carries no credentials. Do not send the local
+	// owner token until the listener proves it is this application's daemon.
+	resp, err := directHTTPClient(2 * time.Second).Do(req)
+	if err != nil {
+		return errors.New("could not verify OwnYourBot daemon identity; authenticated request was not sent")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("target does not identify as an OwnYourBot daemon; authenticated request was not sent")
+	}
+	var identity struct {
+		OK      bool   `json:"ok"`
+		Service string `json:"service"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&identity) != nil || !identity.OK || identity.Service != "ownyourbot" {
+		return errors.New("target does not identify as an OwnYourBot daemon; authenticated request was not sent")
+	}
+	return nil
 }
 
 func directHTTPClient(timeout time.Duration) *http.Client {

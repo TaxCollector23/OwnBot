@@ -10,7 +10,11 @@ func (s *Server) notify(kind, run, approval, status string) {
 }
 
 func (s *Server) eventTicket(w http.ResponseWriter, r *http.Request) {
-	ticket, err := s.events.Tickets().Issue()
+	principal, _ := r.Context().Value(principalContextKey{}).(string)
+	if principal == "" {
+		principal = "admin"
+	}
+	ticket, err := s.events.Tickets().IssueFor(principal)
 	if err != nil {
 		errJSON(w, 429, "too many outstanding event tickets")
 		return

@@ -20,6 +20,8 @@ type Config struct {
 	DataDir                string `json:"data_dir"`
 	ListenAddr             string `json:"listen_addr,omitempty"`
 	SocketPath             string `json:"socket_path,omitempty"`
+	LAN                    bool   `json:"lan,omitempty"`
+	LANAddr                string `json:"lan_addr,omitempty"`
 	ShutdownTimeoutSeconds int    `json:"shutdown_timeout_seconds,omitempty"`
 }
 
@@ -40,11 +42,14 @@ func Load(args []string, getenv func(string) string, stderr io.Writer) (Config, 
 	}
 	fs := flag.NewFlagSet("ownbotd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var configPath, dataDir, listenAddr, socketPath, shutdown string
+	var configPath, dataDir, listenAddr, socketPath, shutdown, lanAddr string
+	var lan bool
 	fs.StringVar(&configPath, "config", "", "JSON config file")
 	fs.StringVar(&dataDir, "data-dir", "", "state directory (default ~/.ownbot)")
 	fs.StringVar(&listenAddr, "listen", "", "loopback TCP address (default 127.0.0.1:8765)")
 	fs.StringVar(&socketPath, "socket", "", "Unix socket path (Unix only; mutually exclusive with --listen)")
+	fs.BoolVar(&lan, "lan", false, "enable paired-device HTTPS access on the local network")
+	fs.StringVar(&lanAddr, "lan-address", "", "private interface IP:port for HTTPS (default detected LAN IP:8766)")
 	fs.StringVar(&shutdown, "shutdown-timeout", "", "graceful shutdown timeout (for example 10s)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: ownbotd [options]\n\nRun OwnBot on loopback TCP or a Unix socket.\n\nOptions:")
@@ -56,9 +61,11 @@ func Load(args []string, getenv func(string) string, stderr io.Writer) (Config, 
 	if fs.NArg() > 0 {
 		return Config{}, fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
-	seenListen, seenSocket, seenShutdown := false, false, false
+	seenDataDir, seenListen, seenSocket, seenShutdown := false, false, false, false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "data-dir":
+			seenDataDir = true
 		case "listen":
 			seenListen = true
 		case "socket":
@@ -89,7 +96,7 @@ func Load(args []string, getenv func(string) string, stderr io.Writer) (Config, 
 		}
 		for key := range keys {
 			switch key {
-			case "data_dir", "listen_addr", "socket_path", "shutdown_timeout_seconds":
+			case "data_dir", "listen_addr", "socket_path", "shutdown_timeout_seconds", "lan", "lan_addr":
 			default:
 				return Config{}, fmt.Errorf("unknown config field %q", key)
 			}
@@ -129,6 +136,9 @@ func Load(args []string, getenv func(string) string, stderr io.Writer) (Config, 
 		}
 		cfg.ShutdownTimeoutSeconds = d
 	}
+	if seenDataDir {
+		cfg.DataDir = dataDir
+	}
 	if seenListen {
 		cfg.ListenAddr = listenAddr
 		cfg.SocketPath = ""
@@ -143,6 +153,39 @@ func Load(args []string, getenv func(string) string, stderr io.Writer) (Config, 
 			return Config{}, fmt.Errorf("--shutdown-timeout: %w", e)
 		}
 		cfg.ShutdownTimeoutSeconds = d
+	}
+	if v := getenv("OWNBOT_LAN"); v != "" {
+		cfg.LAN, err = strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, errors.New("OWNBOT_LAN must be true or false")
+		}
+	}
+	if v := getenv("OWNBOT_LAN_ADDR"); v != "" {
+		cfg.LANAddr = v
+		cfg.LAN = true
+	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "lan-address" {
+			cfg.LANAddr = lanAddr
+			cfg.LAN = true
+		}
+	})
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "lan" {
+			cfg.LAN = lan
+			if !lan {
+				cfg.LANAddr = ""
+			}
+		}
+	})
+	if cfg.LANAddr != "" {
+		cfg.LAN = true
+	}
+	if cfg.LAN && cfg.LANAddr == "" {
+		cfg.LANAddr, err = DefaultLANAddress()
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	if err = validate(cfg); err != nil {
 		return Config{}, err
@@ -194,6 +237,16 @@ func validate(c Config) error {
 		if e != nil || n < 1 || n > 65535 {
 			return errors.New("listen port must be between 1 and 65535")
 		}
+	}
+	if c.LAN {
+		if c.SocketPath != "" {
+			return errors.New("LAN access requires a loopback TCP listener, not a Unix socket")
+		}
+		if err := validateLANAddress(c.LANAddr); err != nil {
+			return err
+		}
+	} else if c.LANAddr != "" {
+		return errors.New("LAN address requires LAN access to be enabled")
 	}
 	return nil
 }

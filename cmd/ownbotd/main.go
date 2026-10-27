@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -40,5 +41,22 @@ func run(args []string, logger *slog.Logger) (retErr error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return daemon.Run(ctx, cfg, app.Handler(), app, logger)
+	app.SetShutdown(stop)
+	if !cfg.LAN {
+		return daemon.Run(ctx, cfg, app.Handler(), app, logger)
+	}
+	tlsConfig, fingerprint, err := daemon.LANCertificate(cfg.DataDir, cfg.LANAddr)
+	if err != nil {
+		return err
+	}
+	_, port, err := net.SplitHostPort(cfg.LANAddr)
+	if err != nil {
+		return err
+	}
+	host, _, _ := net.SplitHostPort(cfg.LANAddr)
+	authority := net.JoinHostPort(host, port)
+	if err := app.ConfigureLAN(authority, fingerprint); err != nil {
+		return err
+	}
+	return daemon.RunWithLAN(ctx, cfg, app.Handler(), app.LANHandler(), tlsConfig, app, logger)
 }

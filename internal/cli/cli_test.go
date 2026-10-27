@@ -15,6 +15,16 @@ import (
 	"testing"
 )
 
+func ownBotTestServer(next http.Handler) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/status" {
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func tokenDir(t *testing.T) string {
@@ -33,9 +43,9 @@ func TestSetupFromConfigIsHeadlessAndCreatesToolFreeAgent(t *testing.T) {
 	dataDir := tokenDir(t)
 	configPath := filepath.Join(t.TempDir(), "setup.toml")
 	var modelCreated, agentCreated bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
 			return
 		}
 		if r.URL.Path == "/v1/models" {
@@ -95,7 +105,7 @@ func TestHeadlessSetupAgainstActualDaemonAPI(t *testing.T) {
 	defer app.Close()
 	api := httptest.NewServer(app.Handler())
 	defer api.Close()
-	modelsHost := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	modelsHost := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			_, _ = io.WriteString(w, `{"data":[{"id":"qwen3:8b"}]}`)
 			return
@@ -170,10 +180,10 @@ func TestHeadlessSetupAgainstActualDaemonAPI(t *testing.T) {
 func TestSetupInteractiveReadsBothPromptsFromSameInput(t *testing.T) {
 	dataDir := tokenDir(t)
 	var paths []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		if r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
 			return
 		}
 		if r.URL.Path == "/v1/models" {
@@ -196,7 +206,7 @@ func TestSetupInteractiveReadsBothPromptsFromSameInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("interactive setup: %v", err)
 	}
-	if strings.Join(paths, ",") != "/v1/models,/api/status,/api/models,/api/models/m/probe,/api/agents" {
+	if strings.Join(paths, ",") != "/v1/models,/api/models,/api/models/m/probe,/api/agents" {
 		t.Fatalf("setup endpoints: %v", paths)
 	}
 	if !strings.Contains(stdout.String(), "Agent name [Assistant]") {
@@ -207,7 +217,7 @@ func TestSetupInteractiveReadsBothPromptsFromSameInput(t *testing.T) {
 func TestModelCommandsUseTokenAndSendEmptyProbeBody(t *testing.T) {
 	dataDir := tokenDir(t)
 	var probeBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+testToken {
 			t.Errorf("request did not use token file")
 		}
@@ -245,7 +255,7 @@ func TestModelCommandsUseTokenAndSendEmptyProbeBody(t *testing.T) {
 func TestConnectAddStoresDisabledMetadataOnly(t *testing.T) {
 	dataDir := tokenDir(t)
 	var got map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/mcp/servers" {
 			http.NotFound(w, r)
 			return
@@ -271,7 +281,7 @@ func TestConnectAddStoresDisabledMetadataOnly(t *testing.T) {
 
 func TestAuditExportWritesJSONLAndReportsCurrentScope(t *testing.T) {
 	dataDir := tokenDir(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/audit" || r.Method != http.MethodGet {
 			http.NotFound(w, r)
 			return
@@ -292,7 +302,7 @@ func TestAuditExportWritesJSONLAndReportsCurrentScope(t *testing.T) {
 
 func TestUnavailableCommandsDoNotClaimSuccessOrCallAPI(t *testing.T) {
 	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; http.NotFound(w, r) }))
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; http.NotFound(w, r) }))
 	defer server.Close()
 	dataDir := tokenDir(t)
 	var out strings.Builder
@@ -309,7 +319,7 @@ func TestUnavailableCommandsDoNotClaimSuccessOrCallAPI(t *testing.T) {
 func TestPromptRollbackCallsDaemonEndpoint(t *testing.T) {
 	dataDir := tokenDir(t)
 	var gotBody map[string]int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/a1/prompts/rollback" {
 			http.NotFound(w, r)
 			return
@@ -330,7 +340,7 @@ func TestPromptRollbackCallsDaemonEndpoint(t *testing.T) {
 func TestAgentRunAndRunLifecycleUseDaemonEndpoints(t *testing.T) {
 	dataDir := tokenDir(t)
 	var paths []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		switch r.Method + " " + r.URL.Path {
 		case "POST /api/agents/a1/runs":
@@ -380,7 +390,7 @@ func TestAgentRunAndRunLifecycleUseDaemonEndpoints(t *testing.T) {
 
 func TestAgentRunSurfacesDisabledAgentRejection(t *testing.T) {
 	dataDir := tokenDir(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"agent is disabled"}`, http.StatusConflict)
 	}))
 	defer server.Close()
@@ -394,7 +404,7 @@ func TestMCPConnectLifecycleAndAgentCapabilityUpdate(t *testing.T) {
 	dataDir := tokenDir(t)
 	var paths []string
 	var updateBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		switch r.Method + " " + r.URL.Path {
 		case "POST /api/mcp/servers/s1/connect":
@@ -441,7 +451,7 @@ func TestMCPConnectLifecycleAndAgentCapabilityUpdate(t *testing.T) {
 
 func TestMCPConnectAuthRequiredDoesNotPromptOrEchoCredentials(t *testing.T) {
 	dataDir := tokenDir(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = io.WriteString(w, `{"code":"auth_required","error":"MCP authentication required"}`)
 	}))
@@ -455,7 +465,7 @@ func TestMCPConnectAuthRequiredDoesNotPromptOrEchoCredentials(t *testing.T) {
 func TestSearchConfigureAndShowReportExternalRequestBoundary(t *testing.T) {
 	dataDir := tokenDir(t)
 	var configuredEndpoint string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method + " " + r.URL.Path {
 		case "POST /api/search":
 			var body map[string]string
@@ -489,7 +499,7 @@ func TestSearchConfigureAndShowReportExternalRequestBoundary(t *testing.T) {
 
 func TestSearchConfigureSurfacesRejectedEndpoint(t *testing.T) {
 	dataDir := tokenDir(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":"search endpoint must use HTTPS or loopback HTTP without credentials"}`)
 	}))
@@ -503,7 +513,7 @@ func TestSearchConfigureSurfacesRejectedEndpoint(t *testing.T) {
 
 func TestMissingTokenDoesNotMakeAPIRequest(t *testing.T) {
 	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
 	defer server.Close()
 	var stderr strings.Builder
 	err := Run([]string{"inspect", "models", "list", "--url", server.URL, "--data-dir", t.TempDir()}, strings.NewReader(""), io.Discard, &stderr)
@@ -529,7 +539,7 @@ func TestSetupConfigRejectsCredentialFieldsWithoutEchoingValues(t *testing.T) {
 
 func TestHelpDoesNotCallAPI(t *testing.T) {
 	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
 	defer server.Close()
 	var stderr strings.Builder
 	err := Run([]string{"inspect", "models", "list", "--help"}, strings.NewReader(""), io.Discard, &stderr)
@@ -574,7 +584,7 @@ func TestSetupOffersOllamaWithoutGuessingOrInstalling(t *testing.T) {
 }
 
 func TestDetectLocalModelsListsInstalledModelsForEverySupportedRuntime(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ollama/api/tags":
 			_, _ = io.WriteString(w, `{"models":[{"name":"local-q"}]}`)
@@ -608,12 +618,12 @@ func TestSetupDoesNotCreateAgentWhenAnyProbeCapabilityFails(t *testing.T) {
 	dataDir := tokenDir(t)
 	configPath := filepath.Join(t.TempDir(), "setup.toml")
 	var agentsCreated bool
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	api := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/models":
 			_, _ = io.WriteString(w, `{"data":[{"id":"local-model"}]}`)
 		case "/api/status":
-			_, _ = io.WriteString(w, `{"ok":true}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
 		case "/api/models":
 			_, _ = io.WriteString(w, `{"id":"m1","name":"local","model":"local-model"}`)
 		case "/api/models/m1/probe":
@@ -639,7 +649,7 @@ func TestSetupDoesNotCreateAgentWhenAnyProbeCapabilityFails(t *testing.T) {
 func TestInspectCollectsDaemonModelAgentAndPermissionState(t *testing.T) {
 	dataDir := tokenDir(t)
 	var calls []string
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	api := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.URL.Path)
 		switch r.URL.Path {
 		case "/api/status":
@@ -664,7 +674,7 @@ func TestInspectCollectsDaemonModelAgentAndPermissionState(t *testing.T) {
 			t.Fatalf("inspection missing %q: %s", field, output.String())
 		}
 	}
-	if len(calls) != 5 {
+	if len(calls) != 4 {
 		t.Fatalf("inspection API calls=%v", calls)
 	}
 }
@@ -672,7 +682,10 @@ func TestInspectCollectsDaemonModelAgentAndPermissionState(t *testing.T) {
 func TestAuthenticatedCLIClientNeverUsesConfiguredHTTPProxy(t *testing.T) {
 	dataDir := tokenDir(t)
 	var localCalls, proxyCalls int
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { localCalls++; _, _ = io.WriteString(w, `{"ok":true}`) }))
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		localCalls++
+		_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+	}))
 	defer api.Close()
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxyCalls++
@@ -689,8 +702,25 @@ func TestAuthenticatedCLIClientNeverUsesConfiguredHTTPProxy(t *testing.T) {
 	if err := client.Do(context.Background(), http.MethodGet, "/api/status", nil, &result); err != nil {
 		t.Fatal(err)
 	}
-	if localCalls != 1 || proxyCalls != 0 {
+	if localCalls != 2 || proxyCalls != 0 {
 		t.Fatalf("local calls=%d proxy calls=%d", localCalls, proxyCalls)
+	}
+}
+
+func TestClientDoesNotSendOwnerTokenToWrongLocalService(t *testing.T) {
+	dataDir := tokenDir(t)
+	var authorization string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer api.Close()
+	client, err := NewClient(api.URL, dataDir)
+	if err == nil || client != nil || !strings.Contains(err.Error(), "does not identify as an OwnYourBot daemon") {
+		t.Fatalf("wrong local service was accepted: client=%v err=%v", client, err)
+	}
+	if authorization != "" {
+		t.Fatalf("sent credentials before service verification: %q", authorization)
 	}
 }
 
@@ -704,12 +734,16 @@ func TestDaemonStartAddressAndLoopbackStatusDetection(t *testing.T) {
 	if _, err := dashboardAPIURL("127.0.0.1:8765", "/tmp/ownbot.sock"); err == nil {
 		t.Fatal("claimed browser dashboard support for Unix socket")
 	}
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"ok":true}`) }))
+	api := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+	}))
 	defer api.Close()
 	if !daemonHealthy(api.URL) {
 		t.Fatal("healthy loopback daemon was not detected")
 	}
-	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"ok":true}`) }))
+	remote := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+	}))
 	defer remote.Close()
 	if daemonHealthy(strings.Replace(remote.URL, "127.0.0.1", "example.com", 1)) {
 		t.Fatal("accepted non-loopback endpoint")
@@ -719,7 +753,7 @@ func TestDaemonStartAddressAndLoopbackStatusDetection(t *testing.T) {
 func TestTaskHarnessReportsApprovalThroughPersistedRunAPI(t *testing.T) {
 	dataDir := tokenDir(t)
 	t.Setenv("OWNBOT_DATA_DIR", dataDir)
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	api := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/a1/runs" {
 			http.NotFound(w, r)
 			return

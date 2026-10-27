@@ -26,13 +26,14 @@ type Event struct {
 }
 
 type Hub struct {
-	mu      sync.Mutex
-	closed  bool
-	clients map[chan Event]struct{}
-	done    chan struct{}
-	once    sync.Once
-	wg      sync.WaitGroup
-	tickets *Tickets
+	mu             sync.Mutex
+	closed         bool
+	clients        map[chan Event]struct{}
+	done           chan struct{}
+	once           sync.Once
+	wg             sync.WaitGroup
+	tickets        *Tickets
+	validPrincipal func(string) bool
 }
 
 func NewHub(tickets *Tickets) *Hub {
@@ -43,6 +44,17 @@ func NewHub(tickets *Tickets) *Hub {
 }
 
 func (h *Hub) Tickets() *Tickets { return h.tickets }
+
+// SetPrincipalValidator installs a check used before a ticket is accepted and
+// while websocket connections remain open. Empty principals are never valid.
+func (h *Hub) SetPrincipalValidator(validate func(string) bool) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.validPrincipal = validate
+	h.mu.Unlock()
+}
 
 // Publish delivers a notification without blocking on slow clients. Overflow
 // drops the newest notification for that subscriber.
@@ -114,7 +126,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ownbot websocket protocol required", http.StatusBadRequest)
 		return
 	}
-	if ticket == "" || !h.tickets.Consume(ticket) {
+	principal, valid := h.tickets.ConsumeFor(ticket)
+	if ticket == "" || !valid || !h.principalValid(principal) {
 		http.Error(w, "invalid websocket ticket", http.StatusUnauthorized)
 		return
 	}
@@ -145,15 +158,26 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
+		// Revocation is observed promptly for already-open sockets.
+		ticker := time.NewTimer(time.Second)
 		select {
 		case <-h.done:
+			ticker.Stop()
 			_ = conn.Close(websocket.StatusGoingAway, "server shutting down")
 			return
 		case <-ctx.Done():
+			ticker.Stop()
 			return
 		case <-readDone:
+			ticker.Stop()
 			return
+		case <-ticker.C:
+			if !h.principalValid(principal) {
+				_ = conn.Close(websocket.StatusPolicyViolation, "access revoked")
+				return
+			}
 		case event := <-ch:
+			ticker.Stop()
 			writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
 			payload, marshalErr := json.Marshal(event)
 			if marshalErr == nil {
@@ -165,6 +189,16 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (h *Hub) principalValid(principal string) bool {
+	if principal == "" {
+		return false
+	}
+	h.mu.Lock()
+	validate := h.validPrincipal
+	h.mu.Unlock()
+	return validate == nil || validate(principal)
 }
 
 func offeredTicket(values []string) string {

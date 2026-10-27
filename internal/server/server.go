@@ -28,15 +28,22 @@ import (
 )
 
 type Server struct {
-	db          *sql.DB
-	token       string
-	mux         *http.ServeMux
-	registry    *engine.Registry
-	runLocks    sync.Map
-	modelClient func(ModelConfig) models.Client
-	hosts       *mcp.HostManager
-	mcpMu       sync.Mutex
-	events      *events.Hub
+	db             *sql.DB
+	token          string
+	mux            *http.ServeMux
+	registry       *engine.Registry
+	runLocks       sync.Map
+	modelClient    func(ModelConfig) models.Client
+	hosts          *mcp.HostManager
+	mcpMu          sync.Mutex
+	events         *events.Hub
+	lanMu          sync.RWMutex
+	lanAuthority   string
+	lanFingerprint string
+	pairMu         sync.Mutex
+	pairAttempts   map[string]pairAttempt
+	shutdownMu     sync.RWMutex
+	shutdown       func()
 }
 
 func New(dir string) (*Server, error) {
@@ -52,7 +59,7 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil)}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt)}
 	if err = s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -75,6 +82,7 @@ func New(dir string) (*Server, error) {
 		return nil, err
 	}
 	s.routes()
+	s.events.SetPrincipalValidator(s.validEventPrincipal)
 	s.modelClient = func(c ModelConfig) models.Client {
 		return &models.OpenAICompatible{BaseURL: c.BaseURL, Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	}
@@ -127,6 +135,8 @@ CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY,agent_id TEXT NOT NULL 
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL DEFAULT '',agent_id TEXT NOT NULL DEFAULT '',event_type TEXT NOT NULL,actor TEXT NOT NULL DEFAULT '',details_json TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automations(id TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,trigger_type TEXT NOT NULL DEFAULT 'manual',schedule TEXT NOT NULL DEFAULT '',pipeline_json TEXT NOT NULL DEFAULT '[]',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,idempotency_key TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'queued',attempts INTEGER NOT NULL DEFAULT 0,run_after TEXT NOT NULL,last_error TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS paired_devices(id TEXT PRIMARY KEY,name TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,revoked_at TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS device_pairings(secret_hash TEXT PRIMARY KEY,expires_at TEXT NOT NULL,created_at TEXT NOT NULL,used_at TEXT NOT NULL DEFAULT '');
 `); err != nil {
 		return err
 	}
@@ -172,6 +182,12 @@ CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,automation_id TEXT NOT NULL 
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/status", s.status)
+	s.mux.HandleFunc("GET /api/access", s.access)
+	s.mux.HandleFunc("GET /api/devices", s.devices)
+	s.mux.HandleFunc("POST /api/devices/pairing", s.createPairing)
+	s.mux.HandleFunc("POST /api/devices/pair", s.pairDevice)
+	s.mux.HandleFunc("DELETE /api/devices/{id}", s.revokeDevice)
+	s.mux.HandleFunc("POST /api/daemon/shutdown", s.shutdownDaemon)
 	s.mux.Handle("GET /api/events", s.events)
 	s.mux.HandleFunc("POST /api/events/ticket", s.eventTicket)
 	s.mux.HandleFunc("GET /api/mcp/servers", s.mcpServers)
@@ -248,6 +264,7 @@ func (s *Server) security(next http.Handler) http.Handler {
 				http.Error(w, "unauthorized", 401)
 				return
 			}
+			r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, "admin"))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -287,7 +304,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(`SELECT count(*) FROM approvals WHERE status='pending'`).Scan(&p)
 	_ = s.db.QueryRow(`SELECT count(*) FROM automations WHERE enabled=1`).Scan(&m)
 	_ = s.db.QueryRow(`SELECT count(*) FROM jobs WHERE status IN('queued','retry')`).Scan(&j)
-	write(w, 200, map[string]any{"ok": true, "version": "development", "agents": a, "pending_approvals": p, "active_automations": m, "queued_jobs": j, "api_token_required": true})
+	write(w, 200, map[string]any{"ok": true, "service": "ownyourbot", "version": "development", "agents": a, "pending_approvals": p, "active_automations": m, "queued_jobs": j, "api_token_required": true})
 }
 
 type Agent struct {

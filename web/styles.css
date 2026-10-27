@@ -37,3 +37,34 @@
 .search-panel{margin:20px 0}.search-panel code{font:12px var(--mono);overflow-wrap:anywhere}.search-form .item-meta{margin-top:10px}.dashboard-page textarea:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
 .dashboard-page .skip-link{position:absolute;top:-80px;left:16px;z-index:20;padding:10px 14px;background:var(--ink);color:var(--paper)}.dashboard-page .skip-link:focus{top:10px}.agents-panel{margin-bottom:20px}.work-columns{margin-bottom:20px}.settings-drawer{margin:26px 0 30px;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink)}.settings-drawer>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;cursor:pointer;list-style:none;font-size:16px;font-weight:500}.settings-drawer>summary::-webkit-details-marker{display:none}.settings-drawer>summary::after{content:"+";color:var(--blue);font:16px var(--mono)}.settings-drawer[open]>summary::after{content:"−"}.settings-drawer>.section-note{margin-top:0}.settings-columns{margin:20px 0 26px}
 @media(max-width:560px){.agents-panel,.work-columns{margin-bottom:14px}.settings-drawer{margin:20px 0 24px}.settings-drawer>summary{font-size:15px}}
+
+/* LAN pairing stays self-contained: dashboard type uses installed system fonts. */
+.dashboard-page{--sans:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+.dashboard-page .access-panel{margin:22px 0 26px}
+.dashboard-page .access-status{display:grid;gap:7px;font-size:14px;overflow-wrap:anywhere}
+.dashboard-page .access-url{display:block;padding:9px 10px;border:1px solid var(--line);font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.dashboard-page .access-command{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px}
+.dashboard-page .access-command code{padding:7px 9px;background:#e8e7e0;font:12px var(--mono);overflow-wrap:anywhere}
+.dashboard-page .access-actions{margin:16px 0}
+.dashboard-page .access-actions .button,.dashboard-page .pairing-link-row .button{min-height:48px}
+.dashboard-page .pairing-link-panel{margin-top:15px;padding:15px;border:1px solid var(--blue)}
+.dashboard-page .pairing-link-panel[hidden]{display:none}
+.dashboard-page .pairing-link-panel label{display:block;margin-bottom:7px;font-size:13px;font-weight:600}
+.dashboard-page .pairing-link-row{display:flex;gap:9px}
+.dashboard-page .pairing-link-row input{flex:1;min-width:0;min-height:48px;padding:8px 10px;border:1px solid var(--line);border-radius:0;background:var(--paper);font:12px/1.45 var(--mono)}
+.dashboard-page .devices-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:24px 0 4px;padding-top:15px;border-top:1px solid var(--ink)}
+.dashboard-page .devices-heading h3{margin:0;font-size:18px}
+.dashboard-page .device-row .row-actions button{min-height:44px;padding-inline:14px;font-size:13px}
+.dashboard-page .pair-panel{border-color:var(--blue)}
+.dashboard-page .pair-panel input{min-height:48px}
+.dashboard-page .pairing-link-row button{flex:none}
+.dashboard-page .forget-current-device{padding:3px 0 3px 8px;font-size:12px}
+.dashboard-page .host-label{flex-wrap:wrap}
+.dashboard-page button:disabled{opacity:.55}
+@media(max-width:560px){
+  .dashboard-page .access-command{align-items:flex-start;flex-direction:column;gap:7px}
+  .dashboard-page .pairing-link-row{align-items:stretch;flex-direction:column}
+  .dashboard-page .pairing-link-row input,.dashboard-page .pairing-link-row button{width:100%}
+  .dashboard-page .devices-heading{margin-top:20px}
+  .dashboard-page .forget-current-device{padding-left:0}
+}

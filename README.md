@@ -1,8 +1,6 @@
 # OwnYourBot
 
-Run any model on your own PC. Control it anywhere.
-
-OwnYourBot is an early alpha for running agents on your own machine. Remote pairing, provider setup, and signed releases are not ready yet.
+Run agents on your own computer and review their work in a local dashboard. Alpha LAN pairing lets you open that dashboard from another device on the same Wi-Fi network. Internet and cellular access are future work.
 
 ## Install from npm
 
@@ -13,7 +11,28 @@ npm install -g ownyourbot@alpha
 ownyourbot daemon start
 ```
 
-This starts the local daemon in the background and opens `http://127.0.0.1:8765/dashboard`.
+The dashboard opens at `http://127.0.0.1:8765/dashboard`. Its local API token is stored at `~/.ownbot/api.token`.
+
+## Pair a device on the same Wi-Fi
+
+On the host computer, start the daemon with LAN access:
+
+```sh
+ownyourbot daemon start --lan
+```
+
+If it is already running without LAN access, restart it first:
+
+```sh
+ownyourbot daemon stop
+ownyourbot daemon start --lan
+```
+
+The CLI prints the HTTPS LAN address and certificate fingerprint. Open the local dashboard on the host, enter its API token, and create a one-use pairing link in **LAN access**. Open that link on the device you want to pair and give the device a name. The host dashboard lists paired devices and can revoke them.
+
+The local API defaults to `127.0.0.1:8765`. If another service is using that port, select a free loopback port, for example `ownyourbot daemon start --lan --listen 127.0.0.1:18765`, and open `http://127.0.0.1:18765/dashboard` on the host. Stop that daemon with `ownyourbot daemon stop --url http://127.0.0.1:18765` before restarting it.
+
+The self-signed HTTPS certificate needs to be checked and trusted on each browser device. Follow [the LAN access guide](docs/lan-access.md) before pairing. Pairing works only over the same local network; it does not provide cellular or public internet access.
 
 ## Run from source
 
@@ -25,6 +44,4 @@ go build -o ./bin/ownbot ./cmd/ownbot
 ./bin/ownbot daemon start
 ```
 
-The command starts the daemon in the background and opens its dashboard. It creates its local API token in `~/.ownbot/api.token`.
-
-See [TODO.md](TODO.md) and the [release gate](docs/release-gate.md) for release status.
+See [TODO.md](TODO.md), [the LAN access guide](docs/lan-access.md), and the [release gate](docs/release-gate.md) for implementation and verification status.

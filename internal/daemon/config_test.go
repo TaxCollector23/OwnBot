@@ -28,6 +28,28 @@ func TestConfigPrecedenceAndLegacyEnvironment(t *testing.T) {
 		t.Fatalf("precedence mismatch: %+v", cfg)
 	}
 }
+
+func TestDataDirPrecedenceFileEnvironmentThenExplicitFlag(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"data_dir":"/from-file","listen_addr":"127.0.0.1:8000"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := env(map[string]string{"OWNBOT_DATA_DIR": "/from-env"})
+	fromEnv, err := Load([]string{"--config", path}, getenv, new(bytes.Buffer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromEnv.DataDir != "/from-env" {
+		t.Fatalf("environment should override file: got %q", fromEnv.DataDir)
+	}
+	fromFlag, err := Load([]string{"--config", path, "--data-dir", "/from-flag"}, getenv, new(bytes.Buffer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromFlag.DataDir != "/from-flag" {
+		t.Fatalf("explicit flag should override environment and file: got %q", fromFlag.DataDir)
+	}
+}
 func TestConfigAcceptsSocketFromFileAndRejectsPublicListener(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"data_dir":"/tmp/state","socket_path":"/tmp/ownbot.sock"}`), 0600); err != nil {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,6 +42,41 @@ func TestTicketOneTimeExpiryAndBound(t *testing.T) {
 	}
 	if _, err := tickets.Issue(); err != ErrTicketCapacity {
 		t.Fatalf("capacity error=%v", err)
+	}
+}
+
+func TestHubRejectsAndClosesRevokedPrincipal(t *testing.T) {
+	var active atomic.Bool
+	active.Store(true)
+	hub := NewHub(nil)
+	hub.SetPrincipalValidator(func(principal string) bool { return principal == "device:d1" && active.Load() })
+	server := httptest.NewServer(hub)
+	defer server.Close()
+	defer hub.Close()
+	ticket, err := hub.Tickets().IssueFor("device:d1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/events", &websocket.DialOptions{Subprotocols: []string{"ownbot-ticket." + ticket, "ownbot"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active.Store(false)
+	_, _, err = conn.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("revoked connection status=%v err=%v", websocket.CloseStatus(err), err)
+	}
+	_ = conn.CloseNow()
+
+	rejected, err := hub.Tickets().IssueFor("device:d1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/events", &websocket.DialOptions{Subprotocols: []string{"ownbot-ticket." + rejected, "ownbot"}})
+	if err == nil {
+		t.Fatal("revoked principal ticket was accepted")
 	}
 }
 

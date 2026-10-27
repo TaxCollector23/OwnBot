@@ -1,16 +1,28 @@
 (() => {
   const TOKEN_KEY = 'ownbot.api-token';
+  const PAIRED_KEY = 'ownbot.paired-device';
   const tokenPanel = document.querySelector('#token-panel');
   const tokenForm = document.querySelector('#token-form');
   const tokenInput = document.querySelector('#api-token');
+  const pairPanel = document.querySelector('#pair-panel');
+  const pairForm = document.querySelector('#pair-form');
+  const pairNameInput = document.querySelector('#pair-device-name');
+  const isLoopbackHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
+  let pairingSecret = '';
+  if (typeof window !== 'undefined') {
+    pairingSecret = new URLSearchParams((window.location.hash || '').replace(/^#/, '')).get('pair') || '';
+    if (pairingSecret) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }
   const pageMessage = document.querySelector('#page-message');
   const connectionLabel = document.querySelector('#connection-label');
   let token = sessionStorage.getItem(TOKEN_KEY) || '';
+  let pairedDevice = sessionStorage.getItem(PAIRED_KEY) === 'true';
   let protectedApiResponded = false;
   let accessRejected = false;
   let mcpTools = [];
   let mcpServers = [];
   let toolsUnavailable = false;
+  document.querySelector('#forget-current-device').hidden = !pairedDevice || !token;
 
   const q = (selector, root = document) => root.querySelector(selector);
   const list = (value) => Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : Array.isArray(value?.data) ? value.data : [];
@@ -33,7 +45,25 @@
   };
   const showTokenPanel = (show) => {
     tokenPanel.hidden = !show;
-    if (show) tokenInput.focus();
+    const ownerLocal = isLoopbackHost && !pairedDevice;
+    q('#owner-token-copy').hidden = !ownerLocal;
+    q('#paired-token-copy').hidden = !pairedDevice;
+    q('#remote-token-copy').hidden = ownerLocal || pairedDevice;
+    q('#forget-device-button').hidden = !pairedDevice;
+    q('#forget-current-device').hidden = !pairedDevice || !token;
+    tokenForm.hidden = pairedDevice || !ownerLocal;
+    if (show && ownerLocal) tokenInput.focus();
+  };
+  showTokenPanel(false);
+  const forgetDevice = () => {
+    token = '';
+    pairedDevice = false;
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(PAIRED_KEY);
+    tokenForm.hidden = false;
+    showTokenPanel(false);
+    showMessage('This browser has forgotten its paired access.', false);
+    loadAll();
   };
   const api = async (path, options = {}) => {
     const remoteAuthExpected = options.remoteAuthExpected === true;
@@ -55,7 +85,13 @@
       token = '';
       sessionStorage.removeItem(TOKEN_KEY);
       showTokenPanel(true);
-      throw new Error('Access token was rejected. Check the token from ~/.ownbot/api.token and try again.');
+      const rejection = pairedDevice
+        ? 'This paired device was rejected. Pair it again from the host.'
+        : isLoopbackHost
+          ? 'Access token was rejected. Check the token from ~/.ownbot/api.token and try again.'
+          : 'Device access was rejected. Ask the owner to create a new pairing link from the host.';
+      showMessage(rejection);
+      throw new Error(rejection);
     }
     if (!response.ok) {
       const body = await response.text().catch(() => '');
@@ -301,6 +337,16 @@
     showMessage('');
     protectedApiResponded = false;
     accessRejected = false;
+    if (isLoopbackHost) {
+      q('#access-settings').hidden = false;
+      if (token) await loadAccess();
+      else {
+        q('#access-state').textContent = 'Locked';
+        q('#access-status').textContent = 'Connect with the local API token to manage LAN access and paired devices.';
+        q('#create-pairing-button').disabled = true;
+        setLoading('#devices-list', 'Connect with the local API token to view paired devices.');
+      }
+    }
     await loadStatus();
     if (!token) {
       ['#models-list','#mcp-list','#agents-list','#approvals-list','#runs-list','#automations-list','#audit-list'].forEach((selector) => setLoading(selector, 'Enter the local API token to load host data.'));
@@ -315,6 +361,98 @@
     await Promise.all([loadAgents(), loadApprovals(), loadRuns(), loadAutomations(), loadAudit(), loadSearch()]);
     return protectedApiResponded && !accessRejected;
   };
+
+  const loadDevices = async () => {
+    setLoading('#devices-list', 'Loading paired devices…');
+    try {
+      const devices = list(await api('/api/devices'));
+      if (!devices.length) { setLoading('#devices-list', 'No devices have been paired.'); return; }
+      q('#devices-list').innerHTML = devices.map((device) => `<article class="item-row device-row">
+        <div class="item-top"><div><div class="item-title">${esc(value(device.name, 'Unnamed device'))}</div><div class="item-meta">Paired ${esc(date(device.created_at))}${device.revoked_at ? ` · Revoked ${esc(date(device.revoked_at))}` : ''}</div></div><span class="item-tag">${device.revoked_at ? 'Revoked' : 'Active'}</span></div>
+        ${device.revoked_at ? '' : `<div class="row-actions"><button type="button" data-revoke-device="${esc(device.id)}">Revoke access</button></div>`}
+      </article>`).join('');
+    } catch (error) { sectionError('#devices-list', 'Paired devices', error); }
+  };
+  const loadAccess = async () => {
+    if (!isLoopbackHost) return;
+    q('#access-settings').hidden = false;
+    try {
+      const access = await api('/api/access');
+      q('#access-state').textContent = access?.enabled ? 'Enabled' : 'Disabled';
+      q('#access-status').innerHTML = access?.enabled
+        ? `<div>Available on your local network:</div>${list(access.urls).map((url) => `<code class="access-url">${esc(url)}</code>`).join('') || '<span>Address not reported.</span>'}${access.certificate_fingerprint ? `<div class="item-meta">Certificate fingerprint: <code>${esc(access.certificate_fingerprint)}</code></div>` : ''}`
+        : 'LAN access is off. Start the daemon with the command below to pair a device.';
+      q('#create-pairing-button').disabled = !access?.enabled;
+      await loadDevices();
+    } catch (error) {
+      q('#access-state').textContent = 'Unavailable';
+      q('#access-status').textContent = `LAN access could not be loaded: ${error.message}`;
+      q('#create-pairing-button').disabled = true;
+      sectionError('#devices-list', 'Paired devices', error);
+    }
+  };
+
+  if (pairingSecret) {
+    pairPanel.hidden = false;
+    pairNameInput.focus();
+  }
+  pairForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = pairNameInput.value.trim();
+    if (!pairingSecret || !name) return;
+    const submit = q('button[type="submit"]', pairForm);
+    submit.disabled = true;
+    try {
+      const result = await api('/api/devices/pair', {method:'POST', body:JSON.stringify({secret:pairingSecret, name})});
+      if (!result?.token) throw new Error('The host did not return a device token. Request a new pairing link.');
+      token = result.token;
+      pairedDevice = true;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(PAIRED_KEY, 'true');
+      showTokenPanel(false);
+      pairingSecret = '';
+      pairPanel.hidden = true;
+      const connected = await loadAll();
+      if (connected) showMessage(`This browser is paired${result.device?.name ? ` as ${result.device.name}` : ''}.`, false);
+      else showMessage('This browser was paired, but the host did not confirm access. Pair again from the host if needed.');
+    } catch (error) {
+      showMessage(`Could not pair this device: ${error.message}`);
+      submit.disabled = false;
+    }
+  });
+  q('#forget-device-button').addEventListener('click', forgetDevice);
+  q('#forget-current-device').addEventListener('click', forgetDevice);
+  q('#create-pairing-button').addEventListener('click', async () => {
+    const button = q('#create-pairing-button');
+    button.disabled = true;
+    try {
+      const pairing = await api('/api/devices/pairing', {method:'POST', body:JSON.stringify({})});
+      if (!pairing?.pairing_url) throw new Error('The host did not return a pairing link.');
+      q('#pairing-link').value = pairing.pairing_url;
+      q('#pairing-link-panel').hidden = false;
+      q('#pairing-link-meta').textContent = `Expires ${date(pairing.expires_at)}${pairing.certificate_fingerprint ? ` · Certificate fingerprint: ${pairing.certificate_fingerprint}` : ''}`;
+      showMessage('Pairing link created. Anyone with this link can pair one device before it expires.', false);
+    } catch (error) { showMessage(`Could not create pairing link: ${error.message}`); }
+    finally { button.disabled = false; }
+  });
+  q('#copy-pairing-link').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(q('#pairing-link').value);
+      q('#pairing-link-meta').textContent += ' · Copied to clipboard.';
+    } catch { showMessage('Copy failed. Select the pairing link and copy it manually.'); }
+  });
+  q('#refresh-devices-button').addEventListener('click', loadDevices);
+  q('#devices-list').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-revoke-device]');
+    if (!button) return;
+    const id = button.dataset.revokeDevice;
+    button.disabled = true;
+    try {
+      await api(`/api/devices/${encodeURIComponent(id)}`, {method:'DELETE'});
+      showMessage('Device access revoked.', false);
+      await loadDevices();
+    } catch (error) { button.disabled = false; showMessage(`Could not revoke device: ${error.message}`); }
+  });
 
   tokenForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -599,5 +737,8 @@
       await loadAgents();
     } catch (error) { showMessage(`Could not save prompt: ${error.message}`); }
   });
-  loadAll();
+  if (pairedDevice && !token && !pairingSecret) showTokenPanel(true);
+  if (!pairingSecret) {
+    loadAll();
+  }
 })();

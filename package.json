@@ -1,6 +1,6 @@
 {
   "name": "ownyourbot",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0-alpha.4",
   "description": "OwnYourBot local agent daemon (alpha)",
   "bin": {
     "ownyourbot": "scripts/ownbot.js"
@@ -16,7 +16,7 @@
     "docs"
   ],
   "scripts": {
-    "test": "go test ./... && node scripts/test-dashboard-auth.js && node scripts/test-dashboard-runtime.js",
+    "test": "go test ./... && node scripts/test-dashboard-auth.js && node scripts/test-dashboard-runtime.js && node scripts/test-dashboard-lan.js",
     "postinstall": "node scripts/build.js"
   },
   "engines": {

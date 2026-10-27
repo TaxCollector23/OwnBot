@@ -173,6 +173,13 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 		}
 		return nil
 	}
+	available, err := daemonAddressAvailable(apiURL)
+	if err != nil {
+		return err
+	}
+	if !available {
+		return errors.New("listener address is occupied by a service that did not identify itself as OwnYourBot; it was left untouched. Choose another address with --listen")
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("locate OwnYourBot CLI: %w", err)
@@ -237,7 +244,8 @@ Commands:
   setup         Detect local models, probe one, and create a tool-free agent
   connect       Configure public MCP integrations (disabled by default)
   daemon start  Start the local daemon and open its dashboard
-  inspect       Review daemon, model probes, agents, and tool permissions
+  daemon stop   Stop the local daemon
+  inspect       Review hardware, model probes, agents, and tool permissions
   help          Show this list
 
 Use ownyourbot <command> --help for command options. Run without a command to enter the task harness.

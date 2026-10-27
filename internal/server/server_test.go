@@ -62,6 +62,13 @@ func TestSensitiveReadRequiresTokenAndStatusIsLoopbackOnly(t *testing.T) {
 	if w := request(t, s.Handler(), "GET", "/api/agents", "", "127.0.0.1:8765", "", token); w.Code != 200 {
 		t.Fatalf("authenticated read: got %d", w.Code)
 	}
+	w := request(t, s.Handler(), "GET", "/api/status", "", "127.0.0.1:8765", "", "")
+	var status struct {
+		Service string `json:"service"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Service != "ownyourbot" {
+		t.Fatalf("status must identify this daemon: %d %s", w.Code, w.Body.String())
+	}
 }
 func TestMutationsRejectHostAndOrigin(t *testing.T) {
 	s, token := testApp(t)
