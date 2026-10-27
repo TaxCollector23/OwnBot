@@ -2,6 +2,7 @@
 """Run the real OwnYourBot LAN HTTPS path between isolated Docker peers."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,12 @@ def container_python(name, script, payload=None, check=True):
     result = docker("exec", "-i", name, "python3", "/lab/" + script,
                     check=False, input_text=json.dumps(payload or {}))
     if result.returncode:
+        match = re.search(r"check=([a-z0-9_]+)(?: status=([0-9]+))?", result.stderr)
+        if match:
+            detail = "check=" + match.group(1)
+            if match.group(2):
+                detail += " status=" + match.group(2)
+            raise LabFailure("container helper failed (" + detail + ")")
         error_kind = "unknown"
         for line in reversed(result.stderr.splitlines()):
             if line and not line.startswith(("Traceback", "  ")):
@@ -98,11 +105,16 @@ def main(binary):
             "op": "probe", "authority": AUTHORITY,
             "fingerprint": access["fingerprint"], "bootstrap_ticket": access["bootstrap_ticket"],
         })
-        assert result["trusted_tls"] and result["fingerprint_matches"]
-        assert result["loopback_isolated"]
-        assert result["owner_state_unavailable"]
-        assert result["bad_host_rejected"] and result["bad_origin_rejected"]
-        assert result["owner_routes_blocked"] and result["bootstrap_exchange_blocked"]
+        expected_checks = {
+            "trusted_tls": result["trusted_tls"], "fingerprint_matches": result["fingerprint_matches"],
+            "loopback_isolated": result["loopback_isolated"], "owner_state_unavailable": result["owner_state_unavailable"],
+            "bad_host_rejected": result["bad_host_rejected"], "bad_origin_rejected": result["bad_origin_rejected"],
+            "owner_routes_blocked": result["owner_routes_blocked"],
+            "bootstrap_exchange_blocked": result["bootstrap_exchange_blocked"],
+        }
+        failed = [name for name, passed in expected_checks.items() if not passed]
+        if failed:
+            raise LabFailure("failed checks=" + ",".join(failed))
         print("PASS: bridge client reached real TLS LAN listener; certificate trusted and pinned")
         print("PASS: loopback isolation, Host/Origin rejection, owner/session/bootstrap routes blocked")
 
@@ -111,12 +123,14 @@ def main(binary):
         paired = container_python(CLIENT, "client.py", {
             "op": "pair", "authority": AUTHORITY, "secret": created["secret"],
         })
-        assert paired["paired"] and paired["replay_rejected"]
+        if not paired["paired"] or not paired["replay_rejected"]:
+            raise LabFailure("failed checks=pairing,replay_rejected")
         auth = container_python(CLIENT, "client.py", {
             "op": "authenticated", "authority": AUTHORITY,
             "token": paired["token"], "device_id": paired["device_id"],
         })
-        assert auth["read_ok"] and auth["approval_route_auth"]
+        if not auth["read_ok"] or not auth["approval_route_auth"]:
+            raise LabFailure("failed checks=paired_read,approval_route_auth")
         print("PASS: one-use pairing, replay rejection, paired reads and approval route authorization")
 
         stage = "revocation probes"
@@ -129,7 +143,8 @@ def main(binary):
             "op": "revocation", "authority": AUTHORITY,
             "token": paired["token"], "other_token": paired2["token"],
         })
-        assert revoke["revoked_rejected"] and revoke["other_device_works"]
+        if not revoke["revoked_rejected"] or not revoke["other_device_works"]:
+            raise LabFailure("failed checks=device_revocation,other_device_survives")
         print("PASS: revoking one device leaves the second paired device active")
 
         stage = "daemon restart and persistence probes"
@@ -140,7 +155,8 @@ def main(binary):
             "op": "after_restart", "authority": AUTHORITY,
             "token": paired2["token"],
         })
-        assert restart["device_survived"]
+        if not restart["device_survived"]:
+            raise LabFailure("failed checks=device_survives_restart")
         print("PASS: paired device persisted and authenticated after daemon restart")
         print("Evidence: two isolated Docker bridge containers, server 172.28.77.2, client 172.28.77.3")
         print("Limit: this validates container networking and Python HTTPS behavior, not physical devices, browsers, Wi-Fi, or hardware quality")

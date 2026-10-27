@@ -11,6 +11,14 @@ import sys
 SERVER_IP = "172.28.77.2"
 
 
+def require(name, passed, status=None):
+    if not passed:
+        message = "check=" + name
+        if status is not None:
+            message += " status=" + str(status)
+        raise RuntimeError(message)
+
+
 def main(arg):
     authority = arg["authority"]
     context = ssl.create_default_context(cafile="/lan.cert.pem")
@@ -61,7 +69,7 @@ def main(arg):
         ticket = arg.get("bootstrap_ticket", "")
         exchange = request("/api/access/bootstrap/exchange", "POST", {"ticket": ticket},
                            origin="https://" + authority)[0]
-        return {"trusted_tls": status == 200, "fingerprint_matches": fingerprint == expected,
+        result = {"trusted_tls": status == 200, "fingerprint_matches": fingerprint == expected,
                 "owner_state_unavailable": not os.path.exists("/state/api.token") and
                 not os.path.exists("/state/ownbot.db") and
                 not os.path.exists("/state/data/api.token") and
@@ -69,25 +77,42 @@ def main(arg):
                 "loopback_isolated": isolated, "bad_host_rejected": bad_host == 403,
                 "bad_origin_rejected": bad_origin == 403, "owner_routes_blocked": blocked,
                 "bootstrap_exchange_blocked": exchange == 403}
+        statuses = {"lan": status, "bad_host": bad_host, "bad_origin": bad_origin,
+                    "bootstrap_exchange": exchange}
+        for name, passed in result.items():
+            require(name, passed, statuses.get(name))
+        for name, status_code in statuses.items():
+            if name != "lan":
+                require(name + "_status", status_code == 403, status_code)
+        return result
     if op == "pair":
         status, data = request("/api/devices/pair", "POST", {"secret": arg["secret"], "name": "CI LAN device"})
-        assert status == 201
+        require("pairing", status == 201, status)
         replay = request("/api/devices/pair", "POST", {"secret": arg["secret"], "name": "Replay"})[0]
-        return {"paired": True, "replay_rejected": replay == 401,
+        require("replay_rejected", replay == 401, replay)
+        return {"paired": True, "replay_rejected": True,
                 "token": data["token"], "device_id": data["device"]["id"]}
     if op == "authenticated":
-        assert request("/api/status", token=arg["token"])[0] == 200
-        assert request("/api/approvals", token=arg["token"])[0] == 200
+        require("paired_status", request("/api/status", token=arg["token"])[0] == 200)
+        read_status = request("/api/approvals", token=arg["token"])[0]
+        require("approval_read", read_status == 200, read_status)
         no_auth = request("/api/approvals", "POST", {"tool": "fixture"})[0]
+        require("approval_auth_required", no_auth == 401, no_auth)
         created, approval = request("/api/approvals", "POST", {"tool": "fixture"}, token=arg["token"])
-        assert created == 201
+        require("approval_create", created == 201, created)
         decided = request("/api/approvals/" + approval["id"] + "/approve", "POST", {}, token=arg["token"])[0]
+        require("approval_decision", decided == 200, decided)
         return {"read_ok": True, "approval_route_auth": no_auth == 401 and decided == 200}
     if op == "revocation":
-        return {"revoked_rejected": request("/api/status", token=arg["token"])[0] == 401,
-                "other_device_works": request("/api/status", token=arg["other_token"])[0] == 200}
+        revoked = request("/api/status", token=arg["token"])[0]
+        other = request("/api/status", token=arg["other_token"])[0]
+        require("revoked_device_rejected", revoked == 401, revoked)
+        require("other_device_works", other == 200, other)
+        return {"revoked_rejected": True, "other_device_works": True}
     if op == "after_restart":
-        return {"device_survived": request("/api/status", token=arg["token"])[0] == 200}
+        status = request("/api/status", token=arg["token"])[0]
+        require("device_survives_restart", status == 200, status)
+        return {"device_survived": True}
     raise ValueError("unknown LAN peer action")
 
 
