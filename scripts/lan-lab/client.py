@@ -63,7 +63,9 @@ def main(arg):
                            origin="https://" + authority)[0]
         return {"trusted_tls": status == 200, "fingerprint_matches": fingerprint == expected,
                 "owner_state_unavailable": not os.path.exists("/state/api.token") and
-                not os.path.exists("/state/ownbot.db"),
+                not os.path.exists("/state/ownbot.db") and
+                not os.path.exists("/state/data/api.token") and
+                not os.path.exists("/state/data/ownbot.db"),
                 "loopback_isolated": isolated, "bad_host_rejected": bad_host == 403,
                 "bad_origin_rejected": bad_origin == 403, "owner_routes_blocked": blocked,
                 "bootstrap_exchange_blocked": exchange == 403}

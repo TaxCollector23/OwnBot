@@ -22,6 +22,10 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 stage = "initialization"
 
 
+class LabFailure(RuntimeError):
+    pass
+
+
 def docker(*args, check=True, input_text=None):
     return subprocess.run(["docker", *args], text=True, input=input_text,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -30,9 +34,14 @@ def docker(*args, check=True, input_text=None):
 
 def container_python(name, script, payload=None, check=True):
     result = docker("exec", "-i", name, "python3", "/lab/" + script,
-                    check=check, input_text=json.dumps(payload or {}))
+                    check=False, input_text=json.dumps(payload or {}))
     if result.returncode:
-        raise RuntimeError("lab probe failed")
+        error_kind = "unknown"
+        for line in reversed(result.stderr.splitlines()):
+            if line and not line.startswith(("Traceback", "  ")):
+                error_kind = line.split(":", 1)[0].split(" ", 1)[0]
+                break
+        raise LabFailure("container helper exited (" + error_kind + ")")
     return json.loads(result.stdout)
 
 
@@ -148,5 +157,6 @@ if __name__ == "__main__":
         main(sys.argv[1])
     except Exception as exc:
         # Avoid printing command output: it can contain ephemeral lab credentials.
-        print("FAIL: isolated LAN lab stopped during " + stage + " (" + type(exc).__name__ + ")", file=sys.stderr)
+        summary = str(exc) if isinstance(exc, LabFailure) else type(exc).__name__
+        print("FAIL: isolated LAN lab stopped during " + stage + " (" + summary + ")", file=sys.stderr)
         raise SystemExit(1) from exc
