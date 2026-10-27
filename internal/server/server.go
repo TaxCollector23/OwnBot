@@ -16,21 +16,31 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
+	"ownbot/internal/engine"
+	"ownbot/internal/events"
+	"ownbot/internal/mcp"
 	"ownbot/internal/models"
 	"ownbot/web"
 )
 
 type Server struct {
-	db    *sql.DB
-	token string
-	mux   *http.ServeMux
+	db          *sql.DB
+	token       string
+	mux         *http.ServeMux
+	registry    *engine.Registry
+	runLocks    sync.Map
+	modelClient func(ModelConfig) models.Client
+	hosts       *mcp.HostManager
+	mcpMu       sync.Mutex
+	events      *events.Hub
 }
 
 func New(dir string) (*Server, error) {
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := privateDirectory(dir); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", filepath.Join(dir, "ownbot.db"))
@@ -42,8 +52,20 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux()}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil)}
 	if err = s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = s.migrateRuntime(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = s.recoverRuns(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = s.loadSearch(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -53,12 +75,18 @@ func New(dir string) (*Server, error) {
 		return nil, err
 	}
 	s.routes()
+	s.modelClient = func(c ModelConfig) models.Client {
+		return &models.OpenAICompatible{BaseURL: c.BaseURL, Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	}
 	return s, nil
 }
-func (s *Server) Close() error          { return s.db.Close() }
+func (s *Server) Close() error          { s.events.Close(); return errors.Join(s.hosts.Close(), s.db.Close()) }
 func (s *Server) Handler() http.Handler { return s.security(s.mux) }
 func tokenFile(dir string) (string, error) {
 	p := filepath.Join(dir, "api.token")
+	if err := privateToken(p); err != nil {
+		return "", err
+	}
 	b, e := os.ReadFile(p)
 	if e == nil {
 		t := strings.TrimSpace(string(b))
@@ -144,14 +172,20 @@ CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,automation_id TEXT NOT NULL 
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/status", s.status)
+	s.mux.Handle("GET /api/events", s.events)
+	s.mux.HandleFunc("POST /api/events/ticket", s.eventTicket)
 	s.mux.HandleFunc("GET /api/mcp/servers", s.mcpServers)
 	s.mux.HandleFunc("POST /api/mcp/servers", s.createMCPServer)
 	s.mux.HandleFunc("DELETE /api/mcp/servers/{id}", s.revokeMCPServer)
+	s.mux.HandleFunc("POST /api/mcp/servers/{id}/connect", s.connectMCP)
+	s.mux.HandleFunc("POST /api/mcp/servers/{id}/disconnect", s.disconnectMCP)
+	s.mux.HandleFunc("GET /api/tools", s.listTools)
 	s.mux.HandleFunc("GET /api/models", s.models)
 	s.mux.HandleFunc("POST /api/models", s.createModel)
 	s.mux.HandleFunc("POST /api/models/{id}/probe", s.probeModel)
 	s.mux.HandleFunc("GET /api/agents", s.agents)
 	s.mux.HandleFunc("POST /api/agents", s.createAgent)
+	s.mux.HandleFunc("PATCH /api/agents/{id}", s.updateAgent)
 	s.mux.HandleFunc("GET /api/agents/{id}/prompts", s.prompts)
 	s.mux.HandleFunc("POST /api/agents/{id}/prompts", s.addPrompt)
 	s.mux.HandleFunc("GET /api/approvals", s.approvals)
@@ -163,12 +197,22 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/automations", s.createAutomation)
 	s.mux.HandleFunc("POST /api/automations/{id}/jobs", s.enqueue)
 	s.mux.HandleFunc("GET /api/jobs", s.jobs)
+	s.mux.HandleFunc("GET /api/search", s.searchConfig)
+	s.mux.HandleFunc("POST /api/search", s.configureSearch)
+	s.mux.HandleFunc("POST /api/agents/{id}/runs", s.startRun)
+	s.mux.HandleFunc("GET /api/runs", s.listRuns)
+	s.mux.HandleFunc("GET /api/runs/{id}", s.getRun)
+	s.mux.HandleFunc("POST /api/runs/{id}/resume", s.resumeRun)
+	s.mux.HandleFunc("POST /api/agents/{id}/prompts/rollback", s.rollbackPrompt)
 	s.mux.HandleFunc("/", s.static)
 }
 func loopbackHost(h string) bool {
 	host, _, e := net.SplitHostPort(h)
 	if e != nil {
 		host = h
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
@@ -183,10 +227,10 @@ func (s *Server) security(next http.Handler) http.Handler {
 				http.Error(w, "loopback host required", 403)
 				return
 			}
-			if r.Method != "GET" && r.Method != "HEAD" {
+			if (r.Method != "GET" && r.Method != "HEAD") || r.URL.Path == "/api/events" {
 				if o := r.Header.Get("Origin"); o != "" {
 					u, e := url.Parse(o)
-					if e != nil || !loopbackHost(u.Host) || u.Host != r.Host {
+					if e != nil || !loopbackHost(u.Host) || u.Host != r.Host || (u.Scheme != "http" && u.Scheme != "https") || u.Path != "" {
 						http.Error(w, "origin rejected", 403)
 						return
 					}
@@ -194,8 +238,13 @@ func (s *Server) security(next http.Handler) http.Handler {
 			}
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/status" {
-			a := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if subtle.ConstantTimeCompare([]byte(a), []byte(s.token)) != 1 {
+			if r.URL.Path == "/api/events" && r.Method == "GET" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			header := r.Header.Get("Authorization")
+			a := strings.TrimPrefix(header, "Bearer ")
+			if !strings.HasPrefix(header, "Bearer ") || subtle.ConstantTimeCompare([]byte(a), []byte(s.token)) != 1 {
 				http.Error(w, "unauthorized", 401)
 				return
 			}
@@ -216,7 +265,14 @@ func decode(r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
-	return d.Decode(v)
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	var extra any
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("request must contain one JSON object")
+	}
+	return nil
 }
 func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
 func (s *Server) event(kind, actor string, details any) {
@@ -284,7 +340,7 @@ func boolInt(v bool) int {
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	var a Agent
 	if e := decode(r, &a); e != nil {
-		errJSON(w, 400, "invalid JSON: "+e.Error())
+		errJSON(w, 400, "invalid JSON")
 		return
 	}
 	a.Name = strings.TrimSpace(a.Name)
@@ -309,20 +365,29 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	a.CreatedAt = now()
 	a.UpdatedAt = a.CreatedAt
 	t, _ := json.Marshal(a.Tools)
-	_, e := s.db.Exec(`INSERT INTO agents(id,name,model,enabled,web_search,mcp_enabled,tools_json,max_steps,max_tokens,timeout_seconds,created_at,updated_at)VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.Name, a.Model, boolInt(a.Enabled), boolInt(a.WebSearch), boolInt(a.MCPEnabled), string(t), a.MaxSteps, a.MaxTokens, a.TimeoutSeconds, a.CreatedAt, a.UpdatedAt)
+	tx, e := s.db.BeginTx(r.Context(), nil)
+	if e != nil {
+		errJSON(w, 500, "could not save agent")
+		return
+	}
+	defer tx.Rollback()
+	_, e = tx.Exec(`INSERT INTO agents(id,name,model,enabled,web_search,mcp_enabled,tools_json,max_steps,max_tokens,timeout_seconds,created_at,updated_at)VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.Name, a.Model, boolInt(a.Enabled), boolInt(a.WebSearch), boolInt(a.MCPEnabled), string(t), a.MaxSteps, a.MaxTokens, a.TimeoutSeconds, a.CreatedAt, a.UpdatedAt)
 	if e != nil {
 		errJSON(w, 500, "could not save agent")
 		return
 	}
 	if a.Prompt != "" {
-		_, e = s.db.Exec(`INSERT INTO prompt_versions(agent_id,version,prompt,created_at)VALUES(?,1,?,?)`, a.ID, a.Prompt, now())
+		_, e = tx.Exec(`INSERT INTO prompt_versions(agent_id,version,prompt,created_at)VALUES(?,1,?,?)`, a.ID, a.Prompt, now())
 		if e != nil {
 			errJSON(w, 500, "could not save prompt")
 			return
 		}
 		a.PromptVersion = 1
 	}
-	s.event("agent.created", "local-user", map[string]any{"agent_id": a.ID, "name": a.Name})
+	if e = eventTx(tx, "agent.created", "local-user", "", a.ID, map[string]any{"agent_id": a.ID}); e != nil || tx.Commit() != nil {
+		errJSON(w, 500, "could not audit agent creation")
+		return
+	}
 	write(w, 201, a)
 }
 func (s *Server) prompts(w http.ResponseWriter, r *http.Request) {
@@ -349,7 +414,7 @@ func (s *Server) addPrompt(w http.ResponseWriter, r *http.Request) {
 		Prompt string `json:"prompt"`
 	}
 	if e := decode(r, &b); e != nil {
-		errJSON(w, 400, "invalid JSON: "+e.Error())
+		errJSON(w, 400, "invalid JSON")
 		return
 	}
 	if strings.TrimSpace(b.Prompt) == "" || len(b.Prompt) > 32000 {
@@ -371,11 +436,14 @@ func (s *Server) addPrompt(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 404, "agent not found")
 		return
 	}
+	if e = eventTx(tx, "prompt.version_created", "local-user", "", r.PathValue("id"), map[string]any{"version": v}); e != nil {
+		errJSON(w, 500, "could not audit prompt")
+		return
+	}
 	if e = tx.Commit(); e != nil {
 		errJSON(w, 500, e.Error())
 		return
 	}
-	s.event("prompt.version_created", "local-user", map[string]any{"agent_id": r.PathValue("id"), "version": v})
 	write(w, 201, map[string]any{"version": v, "prompt": b.Prompt})
 }
 
@@ -415,7 +483,7 @@ func (s *Server) approvals(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createApproval(w http.ResponseWriter, r *http.Request) {
 	var a Approval
 	if e := decode(r, &a); e != nil {
-		errJSON(w, 400, "invalid JSON: "+e.Error())
+		errJSON(w, 400, "invalid JSON")
 		return
 	}
 	if strings.TrimSpace(a.Tool) == "" {
@@ -432,12 +500,21 @@ func (s *Server) createApproval(w http.ResponseWriter, r *http.Request) {
 	a.ID = newID()
 	a.Status = "pending"
 	a.RequestedAt = now()
-	_, e := s.db.Exec(`INSERT INTO approvals(id,agent_id,run_id,tool,args_json,status,reason,requested_at)VALUES(?,?,?,?,?,?,?,?)`, a.ID, a.AgentID, a.RunID, a.Tool, string(a.Args), a.Status, a.Reason, a.RequestedAt)
+	tx, e := s.db.BeginTx(r.Context(), nil)
 	if e != nil {
 		errJSON(w, 500, "could not record approval")
 		return
 	}
-	s.event("approval.requested", "policy", map[string]any{"approval_id": a.ID, "agent_id": a.AgentID, "tool": a.Tool, "args_redacted": true})
+	defer tx.Rollback()
+	_, e = tx.Exec(`INSERT INTO approvals(id,agent_id,run_id,tool,args_json,status,reason,requested_at)VALUES(?,?,?,?,?,?,?,?)`, a.ID, a.AgentID, a.RunID, a.Tool, string(a.Args), a.Status, a.Reason, a.RequestedAt)
+	if e != nil {
+		errJSON(w, 500, "could not record approval")
+		return
+	}
+	if e = eventTx(tx, "approval.requested", "policy", a.RunID, a.AgentID, map[string]any{"approval_id": a.ID, "tool": a.Tool, "args_redacted": true}); e != nil || tx.Commit() != nil {
+		errJSON(w, 500, "could not audit approval")
+		return
+	}
 	write(w, 201, a)
 }
 func (s *Server) decide(approve bool) http.HandlerFunc {
@@ -447,7 +524,18 @@ func (s *Server) decide(approve bool) http.HandlerFunc {
 			state, event = "approved", "approval.approved"
 		}
 		at := now()
-		res, e := s.db.Exec(`UPDATE approvals SET status=?,decided_at=?,approver='local-user' WHERE id=? AND status='pending'`, state, at, r.PathValue("id"))
+		tx, e := s.db.BeginTx(r.Context(), nil)
+		if e != nil {
+			errJSON(w, 500, "could not record decision")
+			return
+		}
+		defer tx.Rollback()
+		var runID, agentID string
+		if e = tx.QueryRow(`SELECT run_id,agent_id FROM approvals WHERE id=?`, r.PathValue("id")).Scan(&runID, &agentID); e != nil {
+			errJSON(w, 409, "approval not found or already decided")
+			return
+		}
+		res, e := tx.Exec(`UPDATE approvals SET status=?,decided_at=?,approver='local-user' WHERE id=? AND status='pending'`, state, at, r.PathValue("id"))
 		if e != nil {
 			errJSON(w, 500, e.Error())
 			return
@@ -457,7 +545,15 @@ func (s *Server) decide(approve bool) http.HandlerFunc {
 			errJSON(w, 409, "approval not found or already decided")
 			return
 		}
-		s.event(event, "local-user", map[string]any{"approval_id": r.PathValue("id")})
+		if e = eventTx(tx, event, "local-user", runID, agentID, map[string]any{"approval_id": r.PathValue("id")}); e != nil {
+			errJSON(w, 500, "could not audit decision")
+			return
+		}
+		if e = tx.Commit(); e != nil {
+			errJSON(w, 500, "could not record decision")
+			return
+		}
+		s.notify(event, runID, r.PathValue("id"), state)
 		write(w, 200, map[string]any{"id": r.PathValue("id"), "status": state, "decided_at": at, "approver": "local-user"})
 	}
 }
@@ -519,7 +615,7 @@ func (s *Server) automations(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	var a Automation
 	if e := decode(r, &a); e != nil {
-		errJSON(w, 400, "invalid JSON: "+e.Error())
+		errJSON(w, 400, "invalid JSON")
 		return
 	}
 	a.Name = strings.TrimSpace(a.Name)
@@ -559,7 +655,7 @@ func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey string `json:"idempotency_key"`
 	}
 	if e := decode(r, &b); e != nil {
-		errJSON(w, 400, "invalid JSON: "+e.Error())
+		errJSON(w, 400, "invalid JSON")
 		return
 	}
 	if strings.TrimSpace(b.IdempotencyKey) == "" || len(b.IdempotencyKey) > 200 {
@@ -817,8 +913,9 @@ func (s *Server) mcpServers(w http.ResponseWriter, r *http.Request) {
 			errJSON(w, 500, "could not read MCP configuration")
 			return
 		}
-		c.Enabled = en != 0
-		c.RuntimeAvailable = false
+		_, connectedErr := s.hosts.Tools(c.ID)
+		c.Enabled = connectedErr == nil
+		c.RuntimeAvailable = c.Enabled
 		_ = json.Unmarshal([]byte(args), &c.Args)
 		_ = json.Unmarshal([]byte(env), &c.EnvironmentAllowlist)
 		_ = json.Unmarshal([]byte(allowed), &c.AllowedTools)
@@ -1016,6 +1113,10 @@ func (s *Server) createMCPServer(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, c)
 }
 func (s *Server) revokeMCPServer(w http.ResponseWriter, r *http.Request) {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	s.registry.RemoveServer(r.PathValue("id"))
+	_ = s.hosts.Disconnect(r.PathValue("id"))
 	res, e := s.db.Exec(`DELETE FROM mcp_servers WHERE id=?`, r.PathValue("id"))
 	if e != nil {
 		errJSON(w, 500, "could not revoke MCP configuration")

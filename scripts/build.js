@@ -4,8 +4,10 @@ const { spawnSync } = require('node:child_process');
 const { mkdirSync } = require('node:fs');
 const { join } = require('node:path');
 const root = join(__dirname, '..');
-const output = join(root, 'bin', process.platform === 'win32' ? 'ownbotd.exe' : 'ownbotd');
 mkdirSync(join(root, 'bin'), { recursive: true });
-const result = spawnSync('go', ['build', '-o', output, './cmd/ownbotd'], { cwd: root, stdio: 'inherit' });
-if (result.error) console.error('OwnBot development installation requires Go 1.24 or later:', result.error.message);
+for (const binary of ['ownbotd', 'ownbot']) {
+const output = join(root, 'bin', binary + (process.platform === 'win32' ? '.exe' : ''));
+const result = spawnSync('go', ['build', '-trimpath', '-o', output, './cmd/' + binary], { cwd: root, stdio: 'inherit' });
+if (result.error) console.error('OwnYourBot alpha installation requires Go 1.24 or later:', result.error.message);
 if (result.status !== 0) process.exit(result.status || 1);
+}

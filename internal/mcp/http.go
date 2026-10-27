@@ -31,6 +31,12 @@ type HTTPClient struct {
 	version      string
 }
 
+// HTTPStatusError contains only the response status code; provider bodies are
+// intentionally excluded because they may echo credentials or private data.
+type HTTPStatusError struct{ Code int }
+
+func (e *HTTPStatusError) Error() string { return fmt.Sprintf("MCP server returned HTTP %d", e.Code) }
+
 func (c *HTTPClient) validate() error {
 	if !c.Enabled {
 		return ErrDisabled
@@ -180,7 +186,7 @@ func (c *HTTPClient) exchange(ctx context.Context, method string, params any, no
 	if c.session != "" {
 		req.Header.Set("Mcp-Session-Id", c.session)
 	}
-	if c.initialized {
+	if c.version != "" {
 		req.Header.Set("MCP-Protocol-Version", c.version)
 	}
 	if c.Token != nil {
@@ -199,7 +205,7 @@ func (c *HTTPClient) exchange(ctx context.Context, method string, params any, no
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("MCP server returned HTTP %d", resp.StatusCode)
+		return nil, &HTTPStatusError{Code: resp.StatusCode}
 	}
 	if method == "initialize" {
 		c.session = resp.Header.Get("Mcp-Session-Id")

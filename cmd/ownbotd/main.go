@@ -21,7 +21,7 @@ func main() {
 	}
 }
 
-func run(args []string, logger *slog.Logger) error {
+func run(args []string, logger *slog.Logger) (retErr error) {
 	cfg, err := daemon.Load(args, os.Getenv, os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -29,6 +29,11 @@ func run(args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	stateLock, err := daemon.AcquireStateLock(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer func() { retErr = errors.Join(retErr, stateLock.Close()) }()
 	app, err := server.New(cfg.DataDir)
 	if err != nil {
 		return err

@@ -12,9 +12,18 @@ import (
 	"testing"
 )
 
-func testApp(t *testing.T) (*Server, string) {
+func privateTestDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func testApp(t *testing.T) (*Server, string) {
+	t.Helper()
+	dir := privateTestDir(t)
 	s, e := New(dir)
 	if e != nil {
 		t.Fatal(e)
@@ -90,7 +99,7 @@ func TestApprovalDecisionIsSingleUseAndAudited(t *testing.T) {
 	}
 }
 func TestAgentPersistence(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	s, e := New(dir)
 	if e != nil {
 		t.Fatal(e)
@@ -345,7 +354,7 @@ func TestStreamableHTTPMCPIsHTTPSMetadataOnly(t *testing.T) {
 }
 
 func TestMCPTransportMigrationAddsColumnsToExistingDatabase(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	db, e := sql.Open("sqlite", filepath.Join(dir, "ownbot.db"))
 	if e != nil {
 		t.Fatal(e)

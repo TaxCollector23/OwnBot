@@ -37,7 +37,7 @@ func TestUnixHTTPTransportUsesLocalhostAndBearerAuth(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Config{DataDir: stateDir, SocketPath: socket, ShutdownTimeoutSeconds: 2}, app.Handler(), app, NewLogger(io.Discard))
+		done <- Run(ctx, Config{DataDir: stateDir, SocketPath: socket, ShutdownTimeoutSeconds: 5}, app.Handler(), app, NewLogger(io.Discard))
 	}()
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		return (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", socket)
@@ -56,7 +56,7 @@ func TestUnixHTTPTransportUsesLocalhostAndBearerAuth(t *testing.T) {
 		cancel()
 		t.Fatalf("Unix API did not listen: %v", err)
 	}
-	_ = response.Body.Close()
+	_ = drainAndClose(response.Body)
 	if response.StatusCode != http.StatusOK {
 		cancel()
 		t.Fatalf("localhost API status: %d", response.StatusCode)
@@ -71,7 +71,7 @@ func TestUnixHTTPTransportUsesLocalhostAndBearerAuth(t *testing.T) {
 		cancel()
 		t.Fatal(err)
 	}
-	_ = response.Body.Close()
+	_ = drainAndClose(response.Body)
 	if response.StatusCode != http.StatusUnauthorized {
 		cancel()
 		t.Fatalf("sensitive read without bearer: %d", response.StatusCode)
@@ -87,11 +87,12 @@ func TestUnixHTTPTransportUsesLocalhostAndBearerAuth(t *testing.T) {
 		cancel()
 		t.Fatal(err)
 	}
-	_ = response.Body.Close()
+	_ = drainAndClose(response.Body)
 	if response.StatusCode != http.StatusOK {
 		cancel()
 		t.Fatalf("authenticated read: %d", response.StatusCode)
 	}
+	transport.CloseIdleConnections()
 	cancel()
 	select {
 	case err = <-done:
@@ -104,4 +105,13 @@ func TestUnixHTTPTransportUsesLocalhostAndBearerAuth(t *testing.T) {
 	if _, err = os.Lstat(socket); !os.IsNotExist(err) {
 		t.Fatalf("owned socket remains after shutdown: %v", err)
 	}
+}
+
+func drainAndClose(rc io.ReadCloser) error {
+	_, err := io.Copy(io.Discard, rc)
+	closeErr := rc.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }

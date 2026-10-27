@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -43,15 +45,31 @@ func NewClient(apiURL, dataDir string) (*Client, error) {
 			return nil, err
 		}
 	}
-	tokenBytes, err := os.ReadFile(filepath.Join(dataDir, "api.token"))
+	dirInfo, err := os.Lstat(dataDir)
+	if err != nil || !dirInfo.IsDir() || dirInfo.Mode()&os.ModeSymlink != 0 || (runtime.GOOS != "windows" && dirInfo.Mode().Perm()&0077 != 0) {
+		return nil, errors.New("local state directory is missing or insecure")
+	}
+	tokenPath := filepath.Join(dataDir, "api.token")
+	info, err := os.Lstat(tokenPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
+		return nil, errors.New("local API token file is missing or insecure")
+	}
+	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
-		return nil, errors.New("could not read local API token; start ownbotd first and check the selected data directory")
+		return nil, errors.New("could not read local API token; start `ownyourbot daemon start` and check the selected data directory")
 	}
 	token := strings.TrimSpace(string(tokenBytes))
-	if token == "" {
-		return nil, errors.New("local API token file is empty")
+	if len(token) != 64 {
+		return nil, errors.New("local API token file is malformed")
 	}
-	return &Client{baseURL: strings.TrimRight(u.String(), "/"), token: token, http: &http.Client{Timeout: 5 * time.Minute}}, nil
+	if _, err := hex.DecodeString(token); err != nil {
+		return nil, errors.New("local API token file is malformed")
+	}
+	return &Client{baseURL: strings.TrimRight(u.String(), "/"), token: token, http: directHTTPClient(5 * time.Minute)}, nil
+}
+
+func directHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 func defaultDataDir() (string, error) {
@@ -91,10 +109,14 @@ func (c *Client) Do(ctx context.Context, method, path string, body any, result a
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var apiError struct {
 			Error string `json:"error"`
+			Code  string `json:"code"`
 		}
 		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 		_ = json.Unmarshal(limited, &apiError)
 		if apiError.Error != "" {
+			if apiError.Code == "auth_required" {
+				return errors.New("MCP server requires OAuth or sign-in; authentication is not available in this build")
+			}
 			return fmt.Errorf("local API returned %s: %s", resp.Status, apiError.Error)
 		}
 		return fmt.Errorf("local API returned %s", resp.Status)
