@@ -6,15 +6,20 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 
-NETWORK = "ownbot-lan-lab"
-SERVER = "ownbot-lan-server"
-CLIENT = "ownbot-lan-client"
+RUN_ID = uuid.uuid4().hex[:12]
+NETWORK = "ownbot-lan-lab-" + RUN_ID
+SERVER = "ownbot-lan-server-" + RUN_ID
+CLIENT = "ownbot-lan-client-" + RUN_ID
+STATE_VOLUME = "ownbot-lan-state-" + RUN_ID
+CLIENT_VOLUME = "ownbot-lan-client-state-" + RUN_ID
 IMAGE = "python:3.12-alpine"
 SERVER_IP = "172.28.77.2"
 AUTHORITY = SERVER_IP + ":8766"
 ROOT = os.path.dirname(os.path.abspath(__file__))
+stage = "initialization"
 
 
 def docker(*args, check=True, input_text=None):
@@ -48,32 +53,38 @@ def wait_server(up, timeout=20):
 def clean():
     for name in (CLIENT, SERVER):
         docker("rm", "-f", name, check=False)
-    docker("volume", "rm", "-f", "ownbot-lan-lab-state", "ownbot-lan-lab-client-state", check=False)
+    docker("volume", "rm", "-f", STATE_VOLUME, CLIENT_VOLUME, check=False)
     docker("network", "rm", NETWORK, check=False)
 
 
 def main(binary):
+    global stage
     clean()
     cert_path = None
+    stage = "network setup"
     try:
         docker("network", "create", "--driver", "bridge", "--subnet", "172.28.77.0/24", NETWORK)
-        docker("volume", "create", "ownbot-lan-lab-state")
-        docker("volume", "create", "ownbot-lan-lab-client-state")
+        docker("volume", "create", STATE_VOLUME)
+        docker("volume", "create", CLIENT_VOLUME)
+        stage = "server startup"
         docker("run", "-d", "--name", SERVER, "--network", NETWORK, "--ip", SERVER_IP,
-               "-v", "ownbot-lan-lab-state:/state",
+               "-v", STATE_VOLUME + ":/state",
                "-v", ROOT + ":/lab:ro",
                "-v", os.path.abspath(binary) + ":/usr/local/bin/ownbotd:ro",
                IMAGE, "sh", "-c",
                "while :; do /usr/local/bin/ownbotd --data-dir /state --listen 127.0.0.1:8765 --lan-address " + AUTHORITY + " >/dev/null 2>&1; sleep 1; done")
+        stage = "daemon readiness"
         wait_server(True)
+        stage = "owner fixture and public certificate setup"
         access = container_python(SERVER, "owner.py", {"op": "access"})
         fd, cert_path = tempfile.mkstemp(prefix="ownbot-lan-lab-", suffix=".pem")
         os.close(fd)
         docker("cp", SERVER + ":/state/lan.cert.pem", cert_path)
         docker("run", "-d", "--name", CLIENT, "--network", NETWORK, "--ip", "172.28.77.3",
                "-v", cert_path + ":/lan.cert.pem:ro",
-               "-v", "ownbot-lan-lab-client-state:/client-state",
+               "-v", CLIENT_VOLUME + ":/client-state",
                "-v", ROOT + ":/lab:ro", IMAGE, "sh", "-c", "sleep 900")
+        stage = "TLS and route-hardening probes"
         result = container_python(CLIENT, "client.py", {
             "op": "probe", "authority": AUTHORITY,
             "fingerprint": access["fingerprint"], "bootstrap_ticket": access["bootstrap_ticket"],
@@ -86,6 +97,7 @@ def main(binary):
         print("PASS: bridge client reached real TLS LAN listener; certificate trusted and pinned")
         print("PASS: loopback isolation, Host/Origin rejection, owner/session/bootstrap routes blocked")
 
+        stage = "one-use pairing and approval probes"
         created = container_python(SERVER, "owner.py", {"op": "pair"})
         paired = container_python(CLIENT, "client.py", {
             "op": "pair", "authority": AUTHORITY, "secret": created["secret"],
@@ -98,6 +110,7 @@ def main(binary):
         assert auth["read_ok"] and auth["approval_route_auth"]
         print("PASS: one-use pairing, replay rejection, paired reads and approval route authorization")
 
+        stage = "revocation probes"
         second = container_python(SERVER, "owner.py", {"op": "pair"})
         paired2 = container_python(CLIENT, "client.py", {
             "op": "pair", "authority": AUTHORITY, "secret": second["secret"],
@@ -110,6 +123,7 @@ def main(binary):
         assert revoke["revoked_rejected"] and revoke["other_device_works"]
         print("PASS: revoking one device leaves the second paired device active")
 
+        stage = "daemon restart and persistence probes"
         container_python(SERVER, "owner.py", {"op": "shutdown"})
         wait_server(False)
         wait_server(True)
@@ -134,5 +148,5 @@ if __name__ == "__main__":
         main(sys.argv[1])
     except Exception as exc:
         # Avoid printing command output: it can contain ephemeral lab credentials.
-        print("FAIL: isolated LAN lab did not complete (details withheld to keep ephemeral credentials out of logs)", file=sys.stderr)
+        print("FAIL: isolated LAN lab stopped during " + stage + " (" + type(exc).__name__ + ")", file=sys.stderr)
         raise SystemExit(1) from exc

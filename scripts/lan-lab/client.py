@@ -8,6 +8,8 @@ import socket
 import ssl
 import sys
 
+SERVER_IP = "172.28.77.2"
+
 
 def main(arg):
     authority = arg["authority"]
@@ -40,7 +42,7 @@ def main(arg):
     if op == "probe":
         with socket.socket() as local:
             local.settimeout(1)
-            isolated = local.connect_ex(("127.0.0.1", 8765)) != 0
+            isolated = local.connect_ex((SERVER_IP, 8765)) != 0
         with http.client.HTTPSConnection(authority, context=context, timeout=4) as conn:
             conn.request("GET", "/api/status")
             response = conn.getresponse()
