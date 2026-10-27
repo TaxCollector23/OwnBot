@@ -1,41 +1,39 @@
 package main
 
 import (
-	"log"
-	"net"
-	"net/http"
+	"context"
+	"errors"
+	"flag"
+	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+
+	"ownbot/internal/daemon"
 	"ownbot/internal/server"
-	"path/filepath"
-	"strings"
 )
 
 func main() {
-	dir := os.Getenv("OWNBOT_DATA_DIR")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatal(err)
-		}
-		dir = filepath.Join(home, ".ownbot")
+	logger := daemon.NewLogger(os.Stderr)
+	if err := run(os.Args[1:], logger); err != nil {
+		logger.Error("daemon startup or shutdown failed", "error", err)
+		os.Exit(1)
 	}
-	addr := os.Getenv("OWNBOT_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8765"
+}
+
+func run(args []string, logger *slog.Logger) error {
+	cfg, err := daemon.Load(args, os.Getenv, os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
 	}
-	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		log.Fatalf("invalid OWNBOT_ADDR %q: %v", addr, err)
+		return err
 	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil || !ip.IsLoopback() {
-		log.Fatal("OWNBOT_ADDR must be a loopback IP address")
-	}
-	app, err := server.New(dir)
+	app, err := server.New(cfg.DataDir)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	defer app.Close()
-	log.Printf("ownbotd listening on http://%s (state: %s)", addr, dir)
-	log.Fatal(http.ListenAndServe(addr, app.Handler()))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return daemon.Run(ctx, cfg, app.Handler(), app, logger)
 }
