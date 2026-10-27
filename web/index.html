@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ownbot: run any AI model on your own PC</title>
+<meta name="description" content="Run any model on your own PC. Control it anywhere.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--ground:#F3F2EE;--ink:#121212;--accent:#2340F0;--on-ink-muted:#C9C8C0;--on-ink-accent:#8FA0FF;--rule-dark:#3A3A37}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:18px;line-height:1.55}
+a{color:inherit}
+a:hover{text-decoration-thickness:2px}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:clamp(20px,5vw,80px)}
+.mono{font-family:'IBM Plex Mono',monospace}
+h1,h2,h3{margin:0;font-weight:600}
+h2{font-size:clamp(32px,4.4vw,56px);line-height:1.08;letter-spacing:-0.03em}
+h3{font-size:26px;line-height:1.2;letter-spacing:-0.015em}
+p{margin:0}
+section{border-top:1.5px solid var(--ink)}
+.btn{display:inline-flex;align-items:center;min-height:52px;padding:0 28px;text-decoration:none;font-weight:500;font-size:18px}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-outline{border:1.5px solid var(--ink)}
+
+header .wrap{padding-block:24px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 32px}
+.logo{font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:22px;text-decoration:none;letter-spacing:-0.01em}
+nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px;font-size:17px}
+nav a{display:inline-block;padding:10px 0}
+nav a.cta{display:inline-flex;align-items:center;min-height:44px;padding:0 20px;background:var(--ink);color:var(--ground);text-decoration:none;font-weight:500}
+
+.hero{border-top:0}
+.hero .wrap{padding-block:clamp(40px,7vw,96px) clamp(56px,8vw,112px);display:flex;flex-wrap:wrap;align-items:center;gap:56px 64px}
+.hero-copy{flex:1 1 480px;min-width:0;display:flex;flex-direction:column;gap:32px}
+.hero h1{font-size:clamp(44px,6.6vw,88px);line-height:1.02;letter-spacing:-0.035em}
+.hero p{max-width:560px;font-size:21px;line-height:1.5}
+.actions{display:flex;flex-wrap:wrap;gap:16px}
+
+.panel{flex:1 1 420px;min-width:0;background:var(--ink);color:var(--ground);font-family:'IBM Plex Mono',monospace;font-size:16px;line-height:1.6}
+.panel-head{padding:14px 24px;border-bottom:1px solid var(--rule-dark);display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--on-ink-muted)}
+.panel-body{padding:24px;display:flex;flex-direction:column;gap:20px}
+.muted{color:var(--on-ink-muted)}
+.hl{color:var(--on-ink-accent)}
+.calls{display:flex;flex-direction:column;gap:4px}
+.ask{border-top:1px solid var(--rule-dark);padding-top:20px;display:flex;flex-direction:column;gap:16px}
+.ask-actions{display:flex;flex-wrap:wrap;gap:12px}
+.panel button{min-height:44px;padding:0 24px;border-radius:0;font-family:inherit;font-size:16px;font-weight:500;cursor:pointer}
+.b-yes{background:var(--ground);color:var(--ink);border:0}
+.b-no{background:transparent;color:var(--ground);border:1.5px solid var(--ground)}
+
+.block{padding-block:clamp(48px,7vw,96px);display:flex;flex-direction:column;gap:56px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:40px 48px}
+.step{display:flex;flex-direction:column;gap:12px}
+.num{font-family:'IBM Plex Mono',monospace;font-size:18px;color:var(--accent);font-weight:500}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));border-top:1px solid var(--ink);border-left:1px solid var(--ink)}
+.cell{padding:32px;border-right:1px solid var(--ink);border-bottom:1px solid var(--ink);display:flex;flex-direction:column;gap:12px}
+
+.privacy .wrap{padding-block:clamp(48px,7vw,96px);display:flex;flex-wrap:wrap;gap:48px 64px}
+.privacy h2{flex:1 1 360px}
+.privacy-body{flex:1 1 420px;min-width:0;display:flex;flex-direction:column;gap:32px}
+.privacy-body div{display:flex;flex-direction:column;gap:8px}
+.privacy-body div+div{padding-top:32px;border-top:1px solid var(--ink)}
+.privacy-body h3{font-size:22px}
+
+.signup{background:var(--ink);color:var(--ground)}
+.signup .wrap{padding-block:clamp(56px,8vw,112px);display:flex;flex-wrap:wrap;align-items:flex-end;gap:40px 64px}
+.signup-copy{flex:1 1 400px;display:flex;flex-direction:column;gap:16px}
+.signup h2{font-size:clamp(36px,5vw,64px);line-height:1.05}
+.signup-copy p{font-size:20px;max-width:480px}
+form{flex:1 1 400px;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
+.field{flex:1 1 240px;display:flex;flex-direction:column;gap:8px}
+label{font-size:17px;font-weight:500}
+input{width:100%;min-height:52px;padding:0 16px;background:var(--ground);color:var(--ink);border:0;border-radius:0;font-family:inherit;font-size:18px}
+form button{min-height:52px;padding:0 28px;background:var(--on-ink-accent);color:var(--ink);border:0;border-radius:0;font-family:inherit;font-size:18px;font-weight:600;cursor:pointer}
+
+footer{background:var(--ink);color:var(--on-ink-muted);border-top:1px solid var(--rule-dark);font-size:16px}
+footer .wrap{padding-block:28px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px 32px}
+footer .mono{color:var(--ground)}
+</style>
+</head>
+<body>
+
+<header>
+<div class="wrap">
+<a href="#top" class="logo">Ownbot</a>
+<nav aria-label="Primary">
+<a href="#how">How it works</a>
+<a href="#features">Features</a>
+<a href="#privacy">Privacy</a>
+<a href="/dashboard" class="cta">Open dashboard</a>
+</nav>
+</div>
+</header>
+
+<main>
+<section id="top" class="hero">
+<div class="wrap">
+<div class="hero-copy">
+<h1>Run any AI model on your own PC. Control it from anywhere.</h1>
+<p>Run any model on your own PC. Control it anywhere.</p><p>Ownbot is in early development. Provider integrations, remote access, and setup are still being built.</p>
+<div class="actions">
+<a href="/dashboard" class="btn btn-primary">Open dashboard</a>
+<a href="#how" class="btn btn-outline">See how it works</a>
+</div>
+</div>
+
+<div class="panel" role="img" aria-label="Illustration of a planned calendar approval.">
+<div class="panel-head"><span>mini-pc / ownbot</span><span>model: local</span></div>
+<div class="panel-body">
+<div>
+<div class="muted">Example task</div>
+<div>Dentist, Thursday 3pm.</div>
+</div>
+<div class="calls">
+<div class="muted">Tool calls</div>
+<div>tasks.read <span class="muted">ran</span></div>
+<div>calendar.free_slots <span class="muted">ran</span></div>
+<div>calendar.create <span class="hl">waiting for you</span></div>
+</div>
+<div class="ask">
+<div>Add an event to Google Calendar?</div>
+<div class="ask-actions">
+<button type="button" class="b-yes" tabindex="-1">Approve</button>
+<button type="button" class="b-no" tabindex="-1">Deny</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="how">
+<div class="wrap block">
+<h2>Set up in three steps.</h2>
+<div class="steps">
+<div class="step">
+<div class="num">01</div>
+<h3>Install it on a mini PC</h3>
+<p>GUI and SSH setup are planned. The development daemon currently runs from source.</p>
+</div>
+<div class="step">
+<div class="num">02</div>
+<h3>Pick an open model</h3>
+<p>Local and API model support is in development. A capability probe will check model behavior.</p>
+</div>
+<div class="step">
+<div class="num">03</div>
+<h3>Send tasks from anywhere</h3>
+<p>Remote access and action approval are planned. The current dashboard is local only.</p>
+</div>
+</div>
+</div>
+</section>
+
+<section id="features">
+<div class="wrap block">
+<h2>What it does.</h2>
+<div class="grid">
+<div class="cell">
+<h3>Any model</h3>
+<p>Local model and API provider support is in development.</p>
+</div>
+<div class="cell">
+<h3>Your prompt, your tools</h3>
+<p>Save prompt versions and configure agent settings. Tool enforcement is in development.</p>
+</div>
+<div class="cell">
+<h3>Remote control</h3>
+<p>Phone pairing and secure remote access are planned.</p>
+</div>
+<div class="cell">
+<h3>Approvals and audit log</h3>
+<p>The dashboard records approval decisions. Enforcing them for tool calls is in development.</p>
+</div>
+<div class="cell">
+<h3>GUI or headless setup</h3>
+<p>The dashboard is available locally. Complete GUI and SSH setup is planned.</p>
+</div>
+<div class="cell">
+<h3>Your accounts, automated</h3>
+<p>Google Calendar, Calendly, Notion, and email integrations are in development.</p>
+</div>
+</div>
+</div>
+</section>
+
+<section id="privacy" class="privacy">
+<div class="wrap">
+<h2>What stays on your machine.</h2>
+<div class="privacy-body">
+<div>
+<h3>Stays on the device</h3>
+<p>Ownbot is designed to store its configuration and activity on your machine.</p>
+</div>
+<div>
+<h3>Leaves the device</h3>
+<p>Connected models and services receive the requests needed to use them. Ownbot does not run a hosted agent service.</p>
+</div>
+</div>
+</div>
+</section>
+
+<section class="signup">
+<div class="wrap">
+<div class="signup-copy"><h2>Run it on your machine.</h2><p>Ownbot is in early development.</p></div>
+<a href="/dashboard" class="btn btn-primary">Open dashboard</a>
+</div>
+</section>
+</main>
+
+<footer>
+<div class="wrap">
+<span class="mono">Ownbot</span>
+<span>Run any model on your own PC. Control it anywhere.</span>
+</div>
+</footer>
+
+</body>
+</html>

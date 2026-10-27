@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f2ee">
+  <title>Ownbot — Local dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body class="dashboard-page">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="dash-header">
+    <div class="wrap dash-header-inner">
+      <a class="logo" href="/">Ownbot</a>
+      <div class="host-label"><span class="live-dot"></span><span id="connection-label">Connecting to local host</span></div>
+      <a class="back-link" href="/">About Ownbot <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main class="wrap dashboard-main" id="main">
+    <div class="dashboard-title-row"><div><div class="eyebrow">LOCAL CONTROL PLANE</div><h1>Dashboard</h1><p class="intro">Manage agents, review pending actions, and inspect what ran.</p></div><button class="button outline refresh-button" id="refresh-button" type="button">Refresh data</button></div>
+    <div id="page-message" class="page-message" role="status" hidden></div>
+    <section id="token-panel" class="token-panel" hidden aria-labelledby="token-heading">
+      <div><div class="eyebrow">LOCAL ACCESS</div><h2 id="token-heading">Connect to your Ownbot host</h2><p>Paste the local API token from <code>~/.ownbot/api.token</code>. It stays in this browser tab and is cleared when the tab closes.</p></div>
+      <form id="token-form"><label for="api-token">Local API token</label><div class="token-input-row"><input id="api-token" name="token" type="password" autocomplete="off" spellcheck="false" required><button class="button primary small-button" type="submit">Connect</button></div></form>
+    </section>
+    <section class="status-strip" aria-labelledby="status-heading">
+      <div class="panel-heading"><div><div class="eyebrow">HOST</div><h2 id="status-heading">System status</h2></div><span id="status-pill" class="state-pill state-unknown">Checking</span></div>
+      <div class="status-facts" id="status-facts"><div class="empty-inline">Loading host status…</div></div>
+    </section>
+    <section class="dash-panel models-panel" aria-labelledby="models-heading">
+      <div class="panel-heading"><div><div class="eyebrow">LOCAL MODELS</div><h2 id="models-heading">Model configuration</h2></div><button class="text-button" id="new-model-button" type="button">+ Add local model</button></div>
+      <p class="section-note">Connect an Ollama or LM Studio endpoint on this machine. A capability probe records observed output behavior; it does not start an agent runtime.</p>
+      <div id="models-list" class="model-list" aria-live="polite"><div class="empty-inline">Loading model configurations…</div></div>
+      <form id="model-form" class="inline-form model-form" hidden>
+        <div class="model-form-grid">
+          <div><label for="model-provider">Local provider</label><select id="model-provider" name="provider"><option value="ollama">Ollama</option><option value="lm_studio">LM Studio</option></select></div>
+          <div><label for="model-id">Model identifier</label><input id="model-id" name="model" required maxlength="200" placeholder="e.g. qwen3:8b"></div>
+          <div><label for="model-name">Display name <span class="optional-label">optional</span></label><input id="model-name" name="name" maxlength="100" placeholder="Defaults to provider and model"></div>
+          <div class="endpoint-field"><span class="field-caption">Local endpoint</span><code id="model-endpoint">http://127.0.0.1:11434/v1</code><input id="model-base-url" name="base_url" type="hidden" value="http://127.0.0.1:11434/v1"></div>
+        </div>
+        <div class="form-actions"><button class="button primary small-button" type="submit">Save model</button><button class="text-button cancel-button" type="button">Cancel</button></div>
+      </form>
+    </section>
+    <section class="dash-panel mcp-panel" aria-labelledby="mcp-heading">
+      <div class="panel-heading"><div><div class="eyebrow">MCP CONFIGURATION</div><h2 id="mcp-heading">Saved server metadata</h2></div><span id="mcp-count" class="count-label">—</span></div>
+      <p class="section-note">Saved configuration only. Provider connections and MCP tools are not active in the runtime.</p>
+      <div id="mcp-list" class="mcp-list" aria-live="polite"><div class="empty-inline">Loading saved MCP configuration…</div></div>
+    </section>
+    <div class="dashboard-columns">
+      <section class="dash-panel" aria-labelledby="agents-heading">
+        <div class="panel-heading"><div><div class="eyebrow">CONFIGURATION</div><h2 id="agents-heading">Agents</h2></div><button class="text-button" id="new-agent-button" type="button">+ New agent</button></div>
+        <div id="agents-list" class="list-stack"><div class="empty-inline">Loading agents…</div></div>
+        <form id="agent-form" class="inline-form" hidden>
+          <label for="agent-name">Agent name</label><input id="agent-name" name="name" required maxlength="80" placeholder="e.g. Research helper">
+          <label for="agent-model">Model</label><input id="agent-model" name="model" placeholder="Configure after creating" maxlength="120">
+          <div class="form-actions"><button class="button primary small-button" type="submit">Create agent</button><button class="text-button cancel-button" type="button">Cancel</button></div>
+        </form>
+      </section>
+      <section class="dash-panel" aria-labelledby="approvals-heading">
+        <div class="panel-heading"><div><div class="eyebrow">ACTION REVIEW</div><h2 id="approvals-heading">Approvals</h2></div><span id="approval-count" class="count-label">—</span></div>
+        <div id="approvals-list" class="list-stack"><div class="empty-inline">Loading approvals…</div></div>
+      </section>
+    </div>
+    <div class="dashboard-columns lower-columns">
+      <section class="dash-panel" aria-labelledby="automations-heading">
+        <div class="panel-heading"><div><div class="eyebrow">SCHEDULED WORK</div><h2 id="automations-heading">Automations</h2></div><button class="text-button" id="new-automation-button" type="button">+ New</button></div>
+        <div id="automations-list" class="list-stack"><div class="empty-inline">Loading automations…</div></div>
+        <form id="automation-form" class="inline-form" hidden>
+          <label for="automation-name">Automation name</label><input id="automation-name" name="name" required maxlength="100" placeholder="e.g. Morning summary">
+          <label for="automation-schedule">Schedule</label><input id="automation-schedule" name="schedule" placeholder="Schedule configuration" maxlength="120">
+          <div class="form-actions"><button class="button primary small-button" type="submit">Create automation</button><button class="text-button cancel-button" type="button">Cancel</button></div>
+        </form>
+      </section>
+      <section class="dash-panel" aria-labelledby="audit-heading">
+        <div class="panel-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2 id="audit-heading">Audit log</h2></div><span class="count-label">Latest events</span></div>
+        <div id="audit-list" class="list-stack"><div class="empty-inline">Loading audit log…</div></div>
+      </section>
+    </div>
+    <footer class="dash-footer"><span>Ownbot runs on this host.</span><span>Remote access is planned.</span><a href="/">Read the project overview ↗</a></footer>
+  </main>
+</body>
+</html>

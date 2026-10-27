@@ -1,0 +1,25 @@
+{
+  "name": "ownbot",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "OwnBot daemon (development build)",
+  "bin": {
+    "ownbotd": "scripts/ownbotd.js"
+  },
+  "files": [
+    "cmd",
+    "internal",
+    "web",
+    "scripts",
+    "go.mod",
+    "go.sum",
+    "TODO.md",
+    "docs"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/build.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
