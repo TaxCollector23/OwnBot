@@ -72,14 +72,14 @@ def main(binary):
                "-v", ROOT + ":/lab:ro",
                "-v", os.path.abspath(binary) + ":/usr/local/bin/ownbotd:ro",
                IMAGE, "sh", "-c",
-               "while :; do /usr/local/bin/ownbotd --data-dir /state --listen 127.0.0.1:8765 --lan-address " + AUTHORITY + " >/dev/null 2>&1; sleep 1; done")
+               "while :; do /usr/local/bin/ownbotd --data-dir /state/data --listen 127.0.0.1:8765 --lan-address " + AUTHORITY + " >/dev/null 2>&1; sleep 1; done")
         stage = "daemon readiness"
         wait_server(True)
         stage = "owner fixture and public certificate setup"
         access = container_python(SERVER, "owner.py", {"op": "access"})
         fd, cert_path = tempfile.mkstemp(prefix="ownbot-lan-lab-", suffix=".pem")
         os.close(fd)
-        docker("cp", SERVER + ":/state/lan.cert.pem", cert_path)
+        docker("cp", SERVER + ":/state/data/lan.cert.pem", cert_path)
         docker("run", "-d", "--name", CLIENT, "--network", NETWORK, "--ip", "172.28.77.3",
                "-v", cert_path + ":/lan.cert.pem:ro",
                "-v", CLIENT_VOLUME + ":/client-state",

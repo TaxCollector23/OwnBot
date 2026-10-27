@@ -8,7 +8,7 @@ BASE = "http://127.0.0.1:8765"
 
 
 def request(path, method="GET", body=None, auth=True):
-    token = open("/state/api.token", encoding="ascii").read().strip()
+    token = open("/state/data/api.token", encoding="ascii").read().strip()
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method)
     if auth:
