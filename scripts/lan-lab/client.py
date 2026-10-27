@@ -40,7 +40,11 @@ def main(arg):
             connection.request(method, path, data, headers)
             response = connection.getresponse()
             raw = response.read()
-            return response.status, json.loads(raw) if raw else None
+            try:
+                payload = json.loads(raw) if raw else None
+            except json.JSONDecodeError:
+                payload = None
+            return response.status, payload
         except (OSError, ssl.SSLError, http.client.HTTPException):
             return 0, None
         finally:
