@@ -82,4 +82,4 @@ Paired devices receive dashboard access, but cannot view LAN settings, create li
 
 ## Not verified yet
 
-Local automated route and dashboard tests cover pairing, token rejection, link creation, and revocation. A real second-laptop, iPhone, and Android test is still required to verify certificate trust, browser behavior, and firewall/router settings. Cellular access through a tunnel or relay remains future work.
+The [isolated LAN lab workflow](https://github.com/TaxCollector23/OwnBot/actions/runs/40557519399) passed on commit `93e3221`. It uses two Linux Docker bridge containers to exercise the real HTTPS listener, pairing, replay rejection, separate device credentials, revocation, and restart persistence. This does not verify physical Wi-Fi, browser certificate trust, mobile devices, or firewall/router behavior. A real second-laptop, iPhone, and Android test is still required. Cellular access through a tunnel or relay remains future work.
