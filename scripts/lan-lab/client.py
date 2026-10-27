@@ -99,7 +99,8 @@ def main(arg):
         return {"paired": True, "replay_rejected": True,
                 "token": data["token"], "device_id": data["device"]["id"]}
     if op == "authenticated":
-        require("paired_status", request("/api/status", token=arg["token"])[0] == 200)
+        agent_status = request("/api/agents", token=arg["token"])[0]
+        require("paired_agent_read", agent_status == 200, agent_status)
         read_status = request("/api/approvals", token=arg["token"])[0]
         require("approval_read", read_status == 200, read_status)
         no_auth = request("/api/approvals", "POST", {"tool": "fixture"})[0]
@@ -110,13 +111,13 @@ def main(arg):
         require("approval_decision", decided == 200, decided)
         return {"read_ok": True, "approval_route_auth": no_auth == 401 and decided == 200}
     if op == "revocation":
-        revoked = request("/api/status", token=arg["token"])[0]
-        other = request("/api/status", token=arg["other_token"])[0]
+        revoked = request("/api/agents", token=arg["token"])[0]
+        other = request("/api/agents", token=arg["other_token"])[0]
         require("revoked_device_rejected", revoked == 401, revoked)
         require("other_device_works", other == 200, other)
         return {"revoked_rejected": True, "other_device_works": True}
     if op == "after_restart":
-        status = request("/api/status", token=arg["token"])[0]
+        status = request("/api/agents", token=arg["token"])[0]
         require("device_survives_restart", status == 200, status)
         return {"device_survived": True}
     raise ValueError("unknown LAN peer action")
