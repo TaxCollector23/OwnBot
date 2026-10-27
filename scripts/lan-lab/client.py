@@ -51,12 +51,16 @@ def main(arg):
         with socket.socket() as local:
             local.settimeout(1)
             isolated = local.connect_ex((SERVER_IP, 8765)) != 0
-        with http.client.HTTPSConnection(authority, context=context, timeout=4) as conn:
-            conn.request("GET", "/api/status")
+        conn = http.client.HTTPSConnection(authority, context=context, timeout=4)
+        try:
+            conn.connect()
             der = conn.sock.getpeercert(binary_form=True)
+            conn.request("GET", "/api/status")
             response = conn.getresponse()
             status = response.status
             response.read()
+        finally:
+            conn.close()
         fingerprint = hashlib.sha256(der).hexdigest()
         expected = arg["fingerprint"].replace(":", "").lower()
         bad_host = request("/api/status", host="attacker.invalid")[0]
