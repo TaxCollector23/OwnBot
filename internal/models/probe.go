@@ -3,8 +3,6 @@ package models
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 )
 
 // ProbeResult records observed behaviors only; an error or omitted behavior scores zero.
@@ -29,24 +27,45 @@ func Probe(ctx context.Context, c Client, model string, threshold int) (ProbeRes
 	if e != nil {
 		return p, e
 	}
-	var obj map[string]any
-	p.JSONOutput = json.Unmarshal([]byte(r.Message.Content), &obj) == nil && obj["ok"] == true
+	jsonSchema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)
+	p.JSONOutput = ValidateJSONSchema(jsonSchema, json.RawMessage(r.Message.Content)) == nil
+	if p.JSONOutput {
+		var obj struct {
+			OK bool `json:"ok"`
+		}
+		p.JSONOutput = json.Unmarshal([]byte(r.Message.Content), &obj) == nil && obj.OK
+	}
 	one := Tool{Name: "probe_one", Parameters: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`)}
 	r, e = call(`Call probe_one with value exactly "alpha".`, []Tool{one}, "required", nil)
 	if e != nil {
 		return p, e
 	}
-	if len(r.Message.ToolCalls) == 1 && r.Message.ToolCalls[0].Name == one.Name {
-		p.SingleTool = true
-		var a map[string]any
-		p.ArgumentAccuracy = json.Unmarshal(r.Message.ToolCalls[0].Arguments, &a) == nil && a["value"] == "alpha"
+	p.SingleTool = len(r.Message.ToolCalls) == 1
+	argumentOne := false
+	if p.SingleTool && r.Message.ToolCalls[0].Name == one.Name {
+		argumentOne = ValidateToolCallJSON(r.Message.ToolCalls[0], one) == nil
+		if argumentOne {
+			var a struct {
+				Value string `json:"value"`
+			}
+			argumentOne = json.Unmarshal(r.Message.ToolCalls[0].Arguments, &a) == nil && a.Value == "alpha"
+		}
 	}
-	two := Tool{Name: "probe_two", Parameters: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}`)}
+	p.ArgumentAccuracy = argumentOne
+	two := Tool{Name: "probe_two", Parameters: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`)}
 	r, e = call(`Call probe_two with value exactly "beta".`, []Tool{one, two}, "required", nil)
 	if e != nil {
 		return p, e
 	}
-	p.ToolChoice = len(r.Message.ToolCalls) == 1 && r.Message.ToolCalls[0].Name == "probe_two"
+	p.ToolChoice = len(r.Message.ToolCalls) == 1 && r.Message.ToolCalls[0].Name == two.Name
+	argumentTwo := false
+	if p.ToolChoice && ValidateToolCallJSON(r.Message.ToolCalls[0], two) == nil {
+		var a struct {
+			Value string `json:"value"`
+		}
+		argumentTwo = json.Unmarshal(r.Message.ToolCalls[0].Arguments, &a) == nil && a.Value == "beta"
+	}
+	p.ArgumentAccuracy = p.ArgumentAccuracy && argumentTwo
 	for _, ok := range []bool{p.JSONOutput, p.SingleTool, p.ToolChoice, p.ArgumentAccuracy} {
 		if ok {
 			p.Score += 25
@@ -56,20 +75,9 @@ func Probe(ctx context.Context, c Client, model string, threshold int) (ProbeRes
 	return p, nil
 }
 
-// ValidateToolCallJSON checks call identity and JSON syntax only; it does not perform JSON Schema validation.
 func ValidateToolCallJSON(call ToolCall, tool Tool) error {
 	if call.Name != tool.Name {
-		return fmt.Errorf("tool call %q does not match schema %q", call.Name, tool.Name)
+		return ErrToolNameMismatch
 	}
-	if !json.Valid(call.Arguments) {
-		return fmt.Errorf("tool %s returned invalid JSON arguments", call.Name)
-	}
-	var v any
-	if err := json.Unmarshal(tool.Parameters, &v); err != nil {
-		return fmt.Errorf("tool %s has invalid schema: %w", tool.Name, err)
-	}
-	if strings.TrimSpace(string(call.Arguments)) == "" {
-		return fmt.Errorf("tool %s returned empty arguments", call.Name)
-	}
-	return nil
+	return ValidateJSONSchema(tool.Parameters, call.Arguments)
 }

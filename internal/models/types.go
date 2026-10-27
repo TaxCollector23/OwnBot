@@ -27,6 +27,16 @@ type ToolCall struct {
 	Name           string          `json:"name"`
 	Arguments      json.RawMessage `json:"arguments,omitempty"`
 	ArgumentsDelta string          `json:"arguments_delta,omitempty"`
+	Index          int             `json:"index,omitempty"`
+}
+
+// ToolCallDelta is one OpenAI-compatible streaming fragment. Index is the stable
+// key for merging chunks; ID, Name, and Arguments may arrive across separate chunks.
+type ToolCallDelta struct {
+	Index     int    `json:"index"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 type Request struct {
@@ -54,11 +64,13 @@ type Usage struct {
 }
 
 type StreamEvent struct {
-	ID    string
-	Delta Message
-	Done  bool
-	Usage *Usage
-	Err   error
+	ID             string
+	Delta          Message
+	ToolCallDeltas []ToolCallDelta
+	FinishReason   string
+	Done           bool
+	Usage          *Usage
+	Err            error
 }
 
 type Client interface {

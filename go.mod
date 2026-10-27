@@ -2,7 +2,10 @@ module ownbot
 
 go 1.24.0
 
-require modernc.org/sqlite v1.38.2
+require (
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	modernc.org/sqlite v1.38.2
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -10,7 +13,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
