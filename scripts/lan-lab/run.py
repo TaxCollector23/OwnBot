@@ -44,11 +44,15 @@ def container_python(name, script, payload=None, check=True):
                 detail += " status=" + match.group(2)
             raise LabFailure("container helper failed (" + detail + ")")
         error_kind = "unknown"
+        location = re.search(r'File "[^"\n]*/' + re.escape(script) + r'", line ([0-9]+)', result.stderr)
         for line in reversed(result.stderr.splitlines()):
             if line and not line.startswith(("Traceback", "  ")):
                 error_kind = line.split(":", 1)[0].split(" ", 1)[0]
                 break
-        raise LabFailure("container helper exited (" + error_kind + ")")
+        detail = "container helper exited (" + error_kind
+        if location:
+            detail += " " + script + ":" + location.group(1)
+        raise LabFailure(detail + ")")
     return json.loads(result.stdout)
 
 
