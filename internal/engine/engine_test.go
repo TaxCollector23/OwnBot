@@ -109,6 +109,7 @@ func TestApprovalWaitDoesNotConsumeActiveRunTimeout(t *testing.T) {
 	control := &memoryControl{}
 	runner := Runner{Model: m, Registry: r, Control: control}
 	state := NewState("run", c, "create a task")
+	state.ActiveNanos = int64(100 * time.Millisecond)   // seed prior work so reset detection is independent of timer precision
 	state.StartedAt = time.Now().Add(-30 * time.Minute) // simulate a long human approval wait
 	originalStart := state.StartedAt
 	if err := runner.Advance(context.Background(), &state); err != nil {
@@ -126,7 +127,7 @@ func TestApprovalWaitDoesNotConsumeActiveRunTimeout(t *testing.T) {
 	if state.Status != "completed" || state.StartedAt != originalStart {
 		t.Fatalf("resume did not preserve original start/status: %+v", state)
 	}
-	if state.ActiveNanos <= activeBefore || state.Steps <= stepsBefore || state.Tokens <= tokensBefore {
+	if state.ActiveNanos < activeBefore || state.Steps <= stepsBefore || state.Tokens <= tokensBefore {
 		t.Fatal("resume reset cumulative execution accounting")
 	}
 }

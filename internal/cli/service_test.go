@@ -17,7 +17,7 @@ import (
 
 func TestServiceArgsPreserveListenerLANAndDataDirectory(t *testing.T) {
 	cfg := daemon.Config{DataDir: "/tmp/Own Your Bot", ListenAddr: "127.0.0.1:18765", LAN: true, LANAddr: "192.168.1.24:8766", ShutdownTimeoutSeconds: 17}
-	want := []string{"--data-dir", "/tmp/Own Your Bot", "--listen", "127.0.0.1:18765", "--lan", "--lan-address", "192.168.1.24:8766", "--shutdown-timeout", "17s"}
+	want := []string{"--data-dir", filepath.Clean("/tmp/Own Your Bot"), "--listen", "127.0.0.1:18765", "--lan", "--lan-address", "192.168.1.24:8766", "--shutdown-timeout", "17s"}
 	if got := serviceArgs(cfg); !reflect.DeepEqual(got, want) {
 		t.Fatalf("service args = %#v, want %#v", got, want)
 	}
@@ -58,7 +58,7 @@ func TestPreservedRunningLANIsSerializedIntoServiceSpec(t *testing.T) {
 
 func TestServiceArgsExplicitlyDisableLANByDefault(t *testing.T) {
 	cfg := daemon.Config{DataDir: "/tmp/state", ListenAddr: "127.0.0.1:8765", ShutdownTimeoutSeconds: 10}
-	want := []string{"--data-dir", "/tmp/state", "--listen", "127.0.0.1:8765", "--lan=false", "--shutdown-timeout", "10s"}
+	want := []string{"--data-dir", filepath.Clean("/tmp/state"), "--listen", "127.0.0.1:8765", "--lan=false", "--shutdown-timeout", "10s"}
 	if got := serviceArgs(cfg); !reflect.DeepEqual(got, want) {
 		t.Fatalf("service args = %#v, want %#v", got, want)
 	}

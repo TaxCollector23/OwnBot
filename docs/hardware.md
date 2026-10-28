@@ -9,3 +9,11 @@ With a running daemon, the report also includes saved model capability probes. S
 The fastest model that passes every recorded capability check in that invocation is identified as a task-agnostic capability/latency result. It is not an accuracy, answer-quality, or hallucination score. Model memory requirements are unknown unless the runtime supplies explicit metadata; this report does not infer them from model names or parameter counts. Tokens per second is omitted because the capability probe response does not report token counts.
 
 RAM and VRAM are separate where telemetry exists. Linux uses `/proc/meminfo`; macOS uses `sysctl` and estimates available memory from free, inactive, and speculative pages in `vm_stat`. NVIDIA VRAM comes from `nvidia-smi`. Missing telemetry is reported as unavailable rather than as zero. Other GPU vendors, GPU utilization, swap pressure, and per-model memory use are not measured in this version.
+
+## Observed model checks
+
+| Runtime | Model | Quantization | Capability checks | Probe time | Runtime peak RSS |
+| --- | --- | --- | --- | --- | --- |
+| Ollama 0.40.12 | qwen3:1.7b | Q4_K_M | 4/4 passed | 44.0 seconds | 1.92 GiB |
+
+Measured on a GitHub-hosted Linux CPU runner with 15.6 GiB RAM, Intel Xeon 6973P-C. [Run and evidence artifact](https://github.com/TaxCollector23/OwnBot/actions/runs/40738088838). RSS is sampled process memory, not a minimum RAM requirement. This checks JSON, one tool call, tool choice, and arguments; it does not measure answer quality or hallucinations. M2, FreeBSD, larger models, and GPU performance remain unmeasured. Always probe the installed model on the target host.

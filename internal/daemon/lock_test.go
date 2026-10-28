@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -16,6 +17,7 @@ func TestStateLockBlocksSecondDaemonAndReleases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = first.Close() })
 	if _, err = AcquireStateLock(dir); !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("second state lock got %v, want ErrAlreadyRunning", err)
 	}
@@ -23,7 +25,7 @@ func TestStateLockBlocksSecondDaemonAndReleases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("lock mode=%o, want 600", info.Mode().Perm())
 	}
 	if err = first.Close(); err != nil {
@@ -33,6 +35,7 @@ func TestStateLockBlocksSecondDaemonAndReleases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lock not released: %v", err)
 	}
+	t.Cleanup(func() { _ = second.Close() })
 	if err = second.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -79,11 +79,11 @@ func TestInstallAndUninstallTouchOnlyServiceFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("unit mode = %o", info.Mode().Perm())
 	}
 	dirInfo, err := os.Stat(filepath.Dir(path))
-	if err != nil || dirInfo.Mode().Perm() != 0700 {
+	if err != nil || (runtime.GOOS != "windows" && dirInfo.Mode().Perm() != 0700) {
 		t.Fatalf("service dir mode = %v, err=%v", dirInfo, err)
 	}
 	if got, want := calls, [][]string{{"systemctl", "--user", "show-environment"}, {"systemctl", "--user", "daemon-reload"}, {"systemctl", "--user", "enable", unitName}, {"systemctl", "--user", "restart", unitName}}; !reflect.DeepEqual(got, want) {

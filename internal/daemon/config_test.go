@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"log/slog"
@@ -52,14 +53,20 @@ func TestDataDirPrecedenceFileEnvironmentThenExplicitFlag(t *testing.T) {
 }
 func TestConfigAcceptsSocketFromFileAndRejectsPublicListener(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"data_dir":"/tmp/state","socket_path":"/tmp/ownbot.sock"}`), 0600); err != nil {
+	dataDir := filepath.Join(t.TempDir(), "state")
+	socketPath := filepath.Join(t.TempDir(), "ownbot.sock")
+	config, err := json.Marshal(map[string]string{"data_dir": dataDir, "socket_path": socketPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, config, 0600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load([]string{"--config", path}, env(nil), new(bytes.Buffer))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.SocketPath != "/tmp/ownbot.sock" || cfg.ListenAddr != "" {
+	if cfg.SocketPath != socketPath || cfg.ListenAddr != "" {
 		t.Fatalf("unexpected socket config: %+v", cfg)
 	}
 	if _, err = Load([]string{"--listen", "127.0.0.1:0"}, env(nil), new(bytes.Buffer)); err == nil {
@@ -68,7 +75,7 @@ func TestConfigAcceptsSocketFromFileAndRejectsPublicListener(t *testing.T) {
 	if _, err = Load([]string{"--listen", "0.0.0.0:8765"}, env(nil), new(bytes.Buffer)); err == nil {
 		t.Fatal("public listener accepted")
 	}
-	if _, err = Load([]string{"--listen", "127.0.0.1:1", "--socket", "/tmp/x"}, env(nil), new(bytes.Buffer)); err == nil {
+	if _, err = Load([]string{"--listen", "127.0.0.1:1", "--socket", socketPath}, env(nil), new(bytes.Buffer)); err == nil {
 		t.Fatal("conflicting listeners accepted")
 	}
 }
