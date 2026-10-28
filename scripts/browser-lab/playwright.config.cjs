@@ -22,7 +22,7 @@ module.exports = defineConfig({
     {name: 'phone-390', use: {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true}},
   ],
   webServer: [
-    {command: 'node scripts/browser-lab/providers.cjs model', url: 'http://127.0.0.1:11434/__fixture/health', reuseExistingServer: !process.env.CI, timeout: 10_000},
-    {command: 'node scripts/browser-lab/providers.cjs mcp', url: 'http://127.0.0.1:11435/__fixture/health', reuseExistingServer: !process.env.CI, timeout: 10_000},
+    {command: 'node scripts/browser-lab/providers.cjs model', cwd: path.join(__dirname, '../..'), url: 'http://127.0.0.1:11434/__fixture/health', reuseExistingServer: !process.env.CI, timeout: 10_000},
+    {command: 'node scripts/browser-lab/providers.cjs mcp', cwd: path.join(__dirname, '../..'), url: 'http://127.0.0.1:11435/__fixture/health', reuseExistingServer: !process.env.CI, timeout: 10_000},
   ],
 });
