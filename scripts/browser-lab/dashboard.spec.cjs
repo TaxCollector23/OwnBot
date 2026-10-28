@@ -3,13 +3,34 @@ const {readFile} = require('node:fs/promises');
 const path = require('node:path');
 const {test, expect, freshBootstrap, launch, stopProcess} = require('./daemon-fixture.cjs');
 
-const screenshot = async (page, testInfo, name) => page.screenshot({path:testInfo.outputPath(name), fullPage:true, animations:'disabled'});
+const screenshot = async (page, testInfo, name) => page.screenshot({
+  path:testInfo.outputPath(name),
+  fullPage:true,
+  animations:'disabled',
+  mask:[page.locator('.access-url'), page.locator('#pairing-link'), page.locator('#pairing-link-meta'), page.locator('#pairing-fingerprint-meta')],
+  maskColor:'#6e6e68',
+});
 
 async function setUpModelAgent(page) {
   const settings = page.locator('#settings-toggle');
   if (!(await page.locator('#settings-drawer').evaluate((node) => node.open))) await settings.click();
   await page.locator('#add-model-empty').click();
   await page.locator('#model-id').fill('browser-fixture-model');
+  // Exercise real daemon validation and the visible error path before the valid save.
+  await page.locator('#model-base-url').evaluate((input) => { input.value = 'http://example.com/v1'; });
+  const rejectedModelResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return new URL(response.url()).pathname === '/api/models' && request.method() === 'POST';
+  });
+  await page.getByRole('button', {name:'Save model'}).click();
+  const rejected = await rejectedModelResponse;
+  let rejection = `status=${rejected.status()}`;
+  try { rejection += ` error=${(await rejected.json()).error || 'unknown'}`; } catch {}
+  expect(rejected.status(), `check=real_model_configuration_rejection ${rejection}`).toBe(400);
+  await expect(page.locator('#page-message')).toContainText('Could not save model configuration: HTTP model endpoints must use localhost or a loopback IP');
+  await expect(page.locator('#models-list')).toContainText('No local models configured');
+  await page.locator('#model-base-url').evaluate((input) => { input.value = 'http://127.0.0.1:11434/v1'; });
+
   const createModelResponse = page.waitForResponse((response) => {
     const request = response.request();
     return new URL(response.url()).pathname === '/api/models' && request.method() === 'POST';

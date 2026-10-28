@@ -566,14 +566,16 @@
 
   q('#agent-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const target = event.currentTarget;
+    const form = new FormData(target);
     const payload = {name:String(form.get('name')).trim(), model:String(form.get('model') || '').trim(), enabled:false, tools:[], prompt:''};
-    try { await api('/api/agents', {method:'POST', body:JSON.stringify(payload)}); event.currentTarget.reset(); event.currentTarget.hidden = true; showMessage('Agent created in disabled state.', false); await Promise.all([loadAgents(), loadStatus()]); }
+    try { await api('/api/agents', {method:'POST', body:JSON.stringify(payload)}); target.reset(); target.hidden = true; showMessage('Agent created in disabled state.', false); await Promise.all([loadAgents(), loadStatus()]); }
     catch (error) { showMessage(`Could not create agent: ${error.message}`); }
   });
   q('#mcp-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const target = event.currentTarget;
+    const form = new FormData(target);
     const names = (field) => String(form.get(field) || '').split(',').map((name) => name.trim()).filter(Boolean);
     const allowed = names('allowed_tools');
     const read = names('read_tools');
@@ -598,16 +600,17 @@
     };
     try {
       await api('/api/mcp/servers', {method:'POST', body:JSON.stringify(payload)});
-      event.currentTarget.reset();
-      event.currentTarget.hidden = true;
+      target.reset();
+      target.hidden = true;
       showMessage('HTTP server configuration saved disabled. Connect it explicitly to discover its tools.', false);
       await loadMCPServers();
     } catch (error) { showMessage(`Could not save MCP configuration: ${error.message}`); }
   });
   q('#search-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const endpoint = String(new FormData(event.currentTarget).get('endpoint') || '').trim();
-    const button = q('button[type="submit"]', event.currentTarget);
+    const target = event.currentTarget;
+    const endpoint = String(new FormData(target).get('endpoint') || '').trim();
+    const button = q('button[type="submit"]', target);
     if (!endpoint) return;
     button.disabled = true;
     try {
@@ -623,8 +626,9 @@
   });
   q('#model-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const button = q('button[type="submit"]', event.currentTarget);
+    const target = event.currentTarget;
+    const form = new FormData(target);
+    const button = q('button[type="submit"]', target);
     button.disabled = true;
     const payload = {
       name: String(form.get('name') || '').trim(),
@@ -634,8 +638,8 @@
     };
     try {
       await api('/api/models', {method:'POST', body:JSON.stringify(payload)});
-      event.currentTarget.reset();
-      event.currentTarget.hidden = true;
+      target.reset();
+      target.hidden = true;
       q('#model-provider').dispatchEvent(new Event('change'));
       showMessage('Local model configuration saved. Run a probe to record its observed capabilities.', false);
       await Promise.all([loadModels(), loadStatus()]);
@@ -644,7 +648,8 @@
   });
   q('#automation-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const target = event.currentTarget;
+    const form = new FormData(target);
     const triggerType = String(form.get('trigger_type'));
     const payload = {
       name:String(form.get('name')).trim(),
@@ -655,7 +660,7 @@
       ...(triggerType === 'interval' ? {interval_minutes:Number(form.get('interval_minutes'))} : {}),
       ...(triggerType === 'daily_utc' ? {time_utc:String(form.get('time_utc'))} : {}),
     };
-    try { await api('/api/automations', {method:'POST', body:JSON.stringify(payload)}); event.currentTarget.reset(); event.currentTarget.hidden = true; updateAutomationScheduleFields(); showMessage('Automation saved and enabled.', false); await Promise.all([loadAutomations(), loadStatus()]); }
+    try { await api('/api/automations', {method:'POST', body:JSON.stringify(payload)}); target.reset(); target.hidden = true; updateAutomationScheduleFields(); showMessage('Automation saved and enabled.', false); await Promise.all([loadAutomations(), loadStatus()]); }
     catch (error) { showMessage(`Could not create automation: ${error.message}`); }
   });
   const updateAutomationScheduleFields = () => {

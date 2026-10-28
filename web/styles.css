@@ -119,7 +119,7 @@
 .settings-content{max-width:980px;padding:0 0 16px}
 .settings-content>.dash-panel,.settings-content>.dashboard-columns{margin-block:16px}
 .fingerprint-details{margin-top:4px;color:#595851;font-size:13px}
-.fingerprint-details summary{width:max-content;cursor:pointer;color:#2340f0;text-decoration:underline;text-underline-offset:3px}
+.fingerprint-details summary{display:flex;min-height:44px;width:max-content;align-items:center;padding-block:8px;cursor:pointer;color:#2340f0;text-decoration:underline;text-underline-offset:3px}
 .fingerprint-details code{display:block;margin-top:8px;overflow-wrap:anywhere;font:12px/1.5 var(--mono)}
 .visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .dashboard-page .settings-drawer .dash-panel{padding:20px 0;border:0;border-top:1px solid #d5d4cc}

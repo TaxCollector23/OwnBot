@@ -4,7 +4,7 @@ const mode = process.argv[2];
 const isModel = mode === 'model';
 if (!isModel && mode !== 'mcp') throw new Error('usage: providers.cjs model|mcp');
 
-const stats = {modelCalls: 0, mcpReads: 0, mcpWrites: 0, mcpCalls: []};
+const stats = {modelCalls: 0, mcpReads: 0, mcpWrites: 0, mcpCalls: [], failModel: false};
 const send = (response, status, body) => {
   response.writeHead(status, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'});
   response.end(body === undefined ? '' : JSON.stringify(body));
@@ -35,12 +35,18 @@ const server = http.createServer(async (request, response) => {
   const path = new URL(request.url, 'http://127.0.0.1').pathname;
   if (path === '/__fixture/health') return send(response, 200, {ok:true, mode});
   if (path === '/__fixture/reset' && request.method === 'POST') {
-    Object.assign(stats, {modelCalls: 0, mcpReads: 0, mcpWrites: 0, mcpCalls: []});
+    Object.assign(stats, {modelCalls: 0, mcpReads: 0, mcpWrites: 0, mcpCalls: [], failModel:false});
     return send(response, 200, {ok:true});
+  }
+  if (isModel && path === '/__fixture/fail-model' && request.method === 'POST') {
+    try { stats.failModel = Boolean((await body(request)).enabled); }
+    catch { return send(response, 400, {error:'invalid JSON'}); }
+    return send(response, 200, {failModel:stats.failModel});
   }
   if (path === '/__fixture/stats') return send(response, 200, stats);
 
   if (isModel && path === '/v1/chat/completions' && request.method === 'POST') {
+    if (stats.failModel) return send(response, 503, {error:{message:'fixture model endpoint unavailable'}});
     let payload;
     try { payload = await body(request); }
     catch { return send(response, 400, {error:{message:'invalid JSON'}}); }
