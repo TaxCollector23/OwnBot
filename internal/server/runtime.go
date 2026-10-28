@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"time"
 
 	"ownbot/internal/engine"
 )
@@ -338,7 +339,7 @@ func (s *Server) advanceRun(w http.ResponseWriter, r *http.Request, state *engin
 	}
 	defer mu.Unlock()
 	if latest, err := s.loadRun(state.ID); err == nil {
-		if latest.Status != "awaiting_approval" && latest.Status != "recoverable" {
+		if latest.Status != "awaiting_approval" && latest.Status != "recoverable" && latest.Status != "interrupted" {
 			errJSON(w, 409, "run is not awaiting approval")
 			return
 		}
@@ -371,7 +372,7 @@ func (s *Server) resumeRun(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 404, "run not found")
 		return
 	}
-	if state.Status != "awaiting_approval" && state.Status != "recoverable" {
+	if state.Status != "awaiting_approval" && state.Status != "recoverable" && state.Status != "interrupted" {
 		errJSON(w, 409, "run is not awaiting approval")
 		return
 	}
@@ -457,7 +458,7 @@ func (s *Server) rollbackPrompt(w http.ResponseWriter, r *http.Request) {
 // recoverRuns reconciles durable checkpoints without performing network calls.
 // The daemon holds the state-directory OS lock before opening this database.
 func (s *Server) recoverRuns() error {
-	rows, err := s.db.Query(`SELECT state_json FROM runs WHERE status='running'`)
+	rows, err := s.db.Query(`SELECT state_json FROM runs WHERE status IN ('running','interrupted')`)
 	if err != nil {
 		return err
 	}
@@ -481,30 +482,53 @@ func (s *Server) recoverRuns() error {
 		return err
 	}
 	for _, state := range states {
-		state.Status = "recoverable"
-		state.Error = "daemon restarted; resume to continue"
-		if len(state.Pending) > 0 {
-			key := engine.InvocationKey(state.ID, state.Steps, state.Pending[0])
-			var callStatus string
-			err = s.db.QueryRow(`SELECT status FROM tool_calls WHERE call_key=?`, key).Scan(&callStatus)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			switch callStatus {
-			case "pending":
-				state.Status = "awaiting_approval"
-				state.Error = ""
-			case "dispatched":
-				state.Status = "outcome_unknown"
-				state.Error = "tool was dispatched before restart; reconcile its external outcome before retrying"
-			case "failed", "refused":
-				state.Status = "failed"
-				state.Error = "tool did not complete"
-			}
+		if !state.ActiveStartedAt.IsZero() {
+			state.ActiveNanos += int64(time.Since(state.ActiveStartedAt))
+			state.ActiveStartedAt = time.Time{}
+		}
+		state.Status, state.Error, err = s.pendingRecoveryStatus(state)
+		if err != nil {
+			return err
 		}
 		if err = s.Save(context.Background(), &state); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Server) pendingRecoveryStatus(state engine.State) (string, string, error) {
+	var pending, dispatched, failed int
+	if err := s.db.QueryRow(`SELECT count(*) FROM tool_calls WHERE run_id=? AND status='pending'`, state.ID).Scan(&pending); err != nil {
+		return "", "", err
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM tool_calls WHERE run_id=? AND status='dispatched'`, state.ID).Scan(&dispatched); err != nil {
+		return "", "", err
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM tool_calls WHERE run_id=? AND status IN ('failed','refused')`, state.ID).Scan(&failed); err != nil {
+		return "", "", err
+	}
+	if dispatched > 0 {
+		return "outcome_unknown", "tool was dispatched before restart; reconcile its external outcome before retrying", nil
+	}
+	if failed > 0 {
+		return "failed", "tool did not complete", nil
+	}
+	if pending > 0 {
+		return "awaiting_approval", "", nil
+	}
+	for _, call := range state.Pending {
+		key := engine.InvocationKey(state.ID, state.Steps, call)
+		var callStatus string
+		err := s.db.QueryRow(`SELECT status FROM tool_calls WHERE call_key=?`, key).Scan(&callStatus)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", "", err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			// The model generated a tool request but the durable policy gate had
+			// not recorded it. Keep it interrupted until policy rechecks it.
+			return "interrupted", "pending tool request will be rechecked on resume", nil
+		}
+	}
+	return "recoverable", "daemon restarted; resume to continue", nil
 }

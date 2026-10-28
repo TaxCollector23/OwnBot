@@ -157,7 +157,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	case "connect":
 		err = runConnect(args[1:], stdout, stderr)
 	default:
-		return fmt.Errorf("unknown command %q; run `ownyourbot --help`", args[0])
+		return fmt.Errorf("unknown command %q; run `ownbot --help`", args[0])
 	}
 	if errors.Is(err, errHelpRequested) {
 		return nil
@@ -167,7 +167,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 
 func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open bool) error {
 	if daemonHealthy(apiURL) {
-		_, _ = fmt.Fprintln(stdout, "OwnYourBot daemon is already running.")
+		_, _ = fmt.Fprintln(stdout, "OwnBot daemon is already running.")
 		if open {
 			return openOwnerDashboard(apiURL, dataDir)
 		}
@@ -178,11 +178,11 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 		return err
 	}
 	if !available {
-		return errors.New("listener address is occupied by a service that did not identify itself as OwnYourBot; it was left untouched. Choose another address with --listen")
+		return errors.New("listener address is occupied by a service that did not identify itself as OwnBot; it was left untouched. Choose another address with --listen")
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate OwnYourBot CLI: %w", err)
+		return fmt.Errorf("locate OwnBot CLI: %w", err)
 	}
 	daemonName := "ownbotd"
 	if os.PathSeparator == '\\' {
@@ -190,7 +190,7 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 	}
 	daemonPath := filepath.Join(filepath.Dir(executable), daemonName)
 	if _, err := os.Stat(daemonPath); err != nil {
-		return errors.New("daemon binary is missing; reinstall OwnYourBot or rebuild both binaries")
+		return errors.New("daemon binary is missing; reinstall OwnBot or rebuild both binaries")
 	}
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
@@ -210,14 +210,14 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 	configureDetachedProcess(cmd)
 	if err = cmd.Start(); err != nil {
 		_ = logFile.Close()
-		return fmt.Errorf("start OwnYourBot daemon: %w", err)
+		return fmt.Errorf("start OwnBot daemon: %w", err)
 	}
 	_ = logFile.Close()
 	_ = cmd.Process.Release()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if daemonHealthy(apiURL) {
-			_, _ = fmt.Fprintf(stdout, "OwnYourBot daemon is ready at %s\n", apiURL)
+			_, _ = fmt.Fprintf(stdout, "OwnBot daemon is ready at %s\n", apiURL)
 			if open {
 				return openOwnerDashboard(apiURL, dataDir)
 			}
@@ -237,14 +237,14 @@ func printWelcome(w io.Writer) {
 		}
 	}
 	if color {
-		_, _ = io.WriteString(w, "\x1b[38;5;39mOwnYourBot\x1b[0m\n\n")
+		_, _ = io.WriteString(w, "\x1b[38;5;39mOwnBot\x1b[0m\n\n")
 	} else {
-		_, _ = io.WriteString(w, "OwnYourBot\n\n")
+		_, _ = io.WriteString(w, "OwnBot\n\n")
 	}
 }
 
 func printHelp(w io.Writer) {
-	_, _ = fmt.Fprint(w, `Usage: ownyourbot <command>
+	_, _ = fmt.Fprint(w, `Usage: ownbot <command>
 
 Commands:
 
@@ -252,10 +252,11 @@ Commands:
   connect       Configure public MCP integrations (disabled by default)
   daemon start  Start the local daemon and open its dashboard
   daemon stop   Stop the local daemon
+  daemon install|uninstall|status  Manage the current user's login service
   inspect       Review hardware, model probes, agents, and tool permissions
   help          Show this list
 
-Use ownyourbot <command> --help for command options. Run without a command to enter the task harness.
+Use ownbot <command> --help for command options. Run without a command to enter the task harness.
 `)
 }
 
@@ -303,7 +304,7 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	agentName := fs.String("agent-name", "", "name for the new tool-free agent")
 	prompt := fs.String("prompt", "", "initial system prompt (optional)")
 	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "Usage: ownyourbot setup [--yes] [--model INSTALLED_ID] [--config setup.toml]")
+		_, _ = fmt.Fprintln(stderr, "Usage: ownbot setup [--yes] [--model INSTALLED_ID] [--config setup.toml]")
 		_, _ = fmt.Fprintln(stderr, "TOML config: [model] with optional provider/base_url/model, then [agent] with name/prompt.")
 		fs.PrintDefaults()
 	}
@@ -463,15 +464,17 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			}
 		}
 	}
+	setupNotice := ""
 	if !daemonHealthy(config.APIURL) {
 		if strings.TrimRight(config.APIURL, "/") != strings.TrimRight(defaultAPIURL(), "/") {
-			return errors.New("local daemon is not running at the configured API URL; start it with `ownyourbot daemon start`")
+			return errors.New("local daemon is not running at the configured API URL; start it with `ownbot daemon start`")
 		}
 		args, err := setupDaemonArgs(config.APIURL, *dataDir)
 		if err != nil {
 			return err
 		}
-		if err := startDaemon(args, config.APIURL, *dataDir, stdout, false); err != nil {
+		setupNotice, err = setupManagedDaemon(args, config.APIURL, *dataDir, stdout)
+		if err != nil {
 			return err
 		}
 	}
@@ -518,7 +521,7 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}, &agent); err != nil {
 		return fmt.Errorf("model %q was saved, but tool-free agent creation failed: %w", model.Name, err)
 	}
-	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n", model.Name, agent.Name)
+	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n%s", model.Name, agent.Name, setupNotice)
 	return nil
 }
 
@@ -537,7 +540,7 @@ func normalizeSetupProvider(provider string) (string, error) {
 
 func offerOllama(input *bufio.Reader, stdout io.Writer, yes bool) error {
 	if yes {
-		return errors.New("no local model runtime or installed model was detected; install Ollama from https://ollama.com/download, run `ollama pull <model-id>` for a model you choose, then rerun `ownyourbot setup --yes`; no model was selected or downloaded")
+		return errors.New("no local model runtime or installed model was detected; install Ollama from https://ollama.com/download, run `ollama pull <model-id>` for a model you choose, then rerun `ownbot setup --yes`; no model was selected or downloaded")
 	}
 	answer, err := ask(input, stdout, "No local runtime/model found. Would you like to set up Ollama? (y/N)", "N")
 	if err != nil {
@@ -546,7 +549,7 @@ func offerOllama(input *bufio.Reader, stdout io.Writer, yes bool) error {
 	if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
 		return errors.New("no local model runtime detected; setup stopped without installing or selecting a model")
 	}
-	_, _ = fmt.Fprintln(stdout, "Install Ollama from https://ollama.com/download, start it, then run `ollama pull <model-id>` for a model you choose. Rerun `ownyourbot setup` after it appears in Ollama's installed model list.")
+	_, _ = fmt.Fprintln(stdout, "Install Ollama from https://ollama.com/download, start it, then run `ollama pull <model-id>` for a model you choose. Rerun `ownbot setup` after it appears in Ollama's installed model list.")
 	openURL("https://ollama.com/download")
 	return errors.New("Ollama installation is user-run; no model was downloaded or selected")
 }
@@ -631,7 +634,7 @@ func runModel(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return errors.New("usage: ownyourbot model probe MODEL_CONFIG_ID [--url URL] [--data-dir DIR]")
+			return errors.New("usage: ownbot model probe MODEL_CONFIG_ID [--url URL] [--data-dir DIR]")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -644,15 +647,15 @@ func runModel(args []string, stdout, stderr io.Writer) error {
 		_, _ = io.WriteString(stdout, "Capability probe result (diagnostic only; it does not run an agent):\n")
 		return writeJSON(stdout, result)
 	default:
-		return fmt.Errorf("unknown model command %q; run `ownyourbot model --help`", args[0])
+		return fmt.Errorf("unknown model command %q; run `ownbot model --help`", args[0])
 	}
 }
 
 func printModelHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Model commands:
-  ownyourbot model list [--url URL] [--data-dir DIR]
-  ownyourbot model add --provider ollama|lm_studio|openai_compatible --model ID [--name NAME] [--base-url URL]
-  ownyourbot model probe [--url URL] [--data-dir DIR] MODEL_CONFIG_ID
+  ownbot model list [--url URL] [--data-dir DIR]
+  ownbot model add --provider ollama|lm_studio|openai_compatible --model ID [--name NAME] [--base-url URL]
+  ownbot model probe [--url URL] [--data-dir DIR] MODEL_CONFIG_ID
 
 Probe records observed capability checks only; this CLI does not attach a model to a running agent.
 No API key is collected. Hosted providers requiring credentials cannot be probed by this command.
@@ -708,7 +711,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return writeJSON(stdout, agent)
 	case "prompts":
 		if len(args) < 2 {
-			return errors.New("usage: ownyourbot agent prompts AGENT_ID")
+			return errors.New("usage: ownbot agent prompts AGENT_ID")
 		}
 		fs := flag.NewFlagSet("agent prompts", flag.ContinueOnError)
 		apiURL, dataDir := commonFlags(fs)
@@ -734,7 +737,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	case "prompt":
 		return runAgentPrompt(args[1:], stdout, stderr)
 	default:
-		return fmt.Errorf("unknown agent command %q; run `ownyourbot agent --help`", args[0])
+		return fmt.Errorf("unknown agent command %q; run `ownbot agent --help`", args[0])
 	}
 }
 
@@ -852,7 +855,7 @@ func runAgentUpdate(args []string, stdout, stderr io.Writer) error {
 
 func runRuns(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownyourbot runs list [flags] | show [flags] RUN_ID | resume [flags] RUN_ID")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot runs list [flags] | show [flags] RUN_ID | resume [flags] RUN_ID")
 		return nil
 	}
 	fs := flag.NewFlagSet("runs "+args[0], flag.ContinueOnError)
@@ -879,7 +882,7 @@ func runRuns(args []string, stdout, stderr io.Writer) error {
 	case "resume":
 		return runByID(client, "POST", fs, stdout)
 	default:
-		return fmt.Errorf("unknown runs command %q; run `ownyourbot runs --help`", args[0])
+		return fmt.Errorf("unknown runs command %q; run `ownbot runs --help`", args[0])
 	}
 }
 
@@ -960,19 +963,19 @@ func runAgentPrompt(args []string, stdout, stderr io.Writer) error {
 		_, _ = fmt.Fprintf(stdout, "Restored prompt version %d as the current prompt metadata. No agent runtime was changed.\n", *version)
 		return writeJSON(stdout, result)
 	default:
-		return fmt.Errorf("unknown prompt command %q; run `ownyourbot agent --help`", args[0])
+		return fmt.Errorf("unknown prompt command %q; run `ownbot agent --help`", args[0])
 	}
 }
 
 func printAgentHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Agent commands:
-  ownyourbot agent list
-  ownyourbot agent run --id AGENT_ID --input TEXT
-  ownyourbot agent add --name NAME [--model MODEL_ID] [--prompt TEXT]
-  ownyourbot agent update --id ID [--enabled|--disabled] [--web-search=true|false] [--mcp=true|false] [--tool NAME] [--mcp-server ID]
-  ownyourbot agent prompts AGENT_ID
-  ownyourbot agent prompt set --id AGENT_ID --text PROMPT
-  ownyourbot agent prompt rollback --id AGENT_ID --version VERSION
+  ownbot agent list
+  ownbot agent run --id AGENT_ID --input TEXT
+  ownbot agent add --name NAME [--model MODEL_ID] [--prompt TEXT]
+  ownbot agent update --id ID [--enabled|--disabled] [--web-search=true|false] [--mcp=true|false] [--tool NAME] [--mcp-server ID]
+  ownbot agent prompts AGENT_ID
+  ownbot agent prompt set --id AGENT_ID --text PROMPT
+  ownbot agent prompt rollback --id AGENT_ID --version VERSION
 
 Agents created here are disabled. Configure and enable an agent before running it.
 Runs require a saved prompt and a model capability probe that passes the unrestricted threshold. MCP server IDs and tools must be connected and discovered first.
@@ -1073,7 +1076,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return fmt.Errorf("usage: ownyourbot connect %s [--url URL] [--data-dir DIR] SERVER_ID", args[0])
+			return fmt.Errorf("usage: ownbot connect %s [--url URL] [--data-dir DIR] SERVER_ID", args[0])
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -1107,7 +1110,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return errors.New("usage: ownyourbot connect remove [--url URL] [--data-dir DIR] SERVER_ID")
+			return errors.New("usage: ownbot connect remove [--url URL] [--data-dir DIR] SERVER_ID")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -1119,7 +1122,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, "Removed saved MCP server configuration.")
 		return nil
 	default:
-		return fmt.Errorf("unknown connect command %q; run `ownyourbot connect --help`", args[0])
+		return fmt.Errorf("unknown connect command %q; run `ownbot connect --help`", args[0])
 	}
 }
 
@@ -1167,11 +1170,11 @@ func validateMCPToolClasses(allowed, reads, writes []string) error {
 
 func printConnectHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Connect commands manage HTTP MCP connections and their saved configuration:
-  ownyourbot connect list
-  ownyourbot connect add --name NAME --transport streamable_http --endpoint URL
-  ownyourbot connect connect SERVER_ID
-  ownyourbot connect disconnect SERVER_ID
-  ownyourbot connect remove SERVER_ID
+  ownbot connect list
+  ownbot connect add --name NAME --transport streamable_http --endpoint URL
+  ownbot connect connect SERVER_ID
+  ownbot connect disconnect SERVER_ID
+  ownbot connect remove SERVER_ID
 
 Use repeatable --tool, --read-tool, and --write-tool to save exact server tool names. stdio can be saved as metadata but cannot connect in this daemon.
 HTTP servers require every allowed tool to be classified as read or write; use disjoint classes.
@@ -1181,7 +1184,7 @@ OAuth and provider sign-in are unavailable. No API keys or credentials are colle
 
 func runSearch(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownyourbot search show [flags] | configure --endpoint URL [flags]")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot search show [flags] | configure --endpoint URL [flags]")
 		return nil
 	}
 	fs := flag.NewFlagSet("search "+args[0], flag.ContinueOnError)
@@ -1215,18 +1218,18 @@ func runSearch(args []string, stdout, stderr io.Writer) error {
 		}
 		_, _ = fmt.Fprintf(stdout, "Configured %s. Search requests leave this device.\n", config.Provider)
 	default:
-		return fmt.Errorf("unknown search command %q; run `ownyourbot search --help`", args[0])
+		return fmt.Errorf("unknown search command %q; run `ownbot search --help`", args[0])
 	}
 	return writeJSON(stdout, config)
 }
 
 func runAudit(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownyourbot audit export [--out FILE] [--url URL] [--data-dir DIR]")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot audit export [--out FILE] [--url URL] [--data-dir DIR]")
 		return nil
 	}
 	if args[0] != "export" {
-		return fmt.Errorf("unknown audit command %q; run `ownyourbot audit --help`", args[0])
+		return fmt.Errorf("unknown audit command %q; run `ownbot audit --help`", args[0])
 	}
 	fs := flag.NewFlagSet("audit export", flag.ContinueOnError)
 	apiURL, dataDir := commonFlags(fs)

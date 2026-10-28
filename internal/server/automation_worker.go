@@ -33,11 +33,8 @@ func (s *Server) jobSnapshot(automationID string) (jobSnapshot, error) {
 	if enabled == 0 {
 		return jobSnapshot{}, errors.New("automation is disabled")
 	}
-	if a.ValidationError != "" {
-		return jobSnapshot{}, errors.New("automation is not executable: " + a.ValidationError)
-	}
-	if a.TriggerType != "manual" && a.TriggerType != "interval" && a.TriggerType != "daily_utc" {
-		return jobSnapshot{}, errors.New("legacy trigger is not executable; recreate as manual, interval, or daily_utc")
+	if err := validateStoredSchedule(a); err != nil {
+		return jobSnapshot{}, err
 	}
 	if a.AgentID == "" || strings.TrimSpace(a.Input) == "" {
 		return jobSnapshot{}, errors.New("automation needs an agent and input")
@@ -58,6 +55,26 @@ func validUTCTime(v string) bool {
 	}
 	t, err := time.Parse("15:04", v)
 	return err == nil && t.Format("15:04") == v
+}
+
+func validateStoredSchedule(a Automation) error {
+	switch a.TriggerType {
+	case "manual":
+		if a.IntervalMinutes != 0 || a.TimeUTC != "" {
+			return errors.New("manual runs do not accept a schedule")
+		}
+	case "interval":
+		if a.IntervalMinutes < 1 || a.IntervalMinutes > 1440 || a.TimeUTC != "" {
+			return errors.New("interval_minutes must be 1 to 1440")
+		}
+	case "daily_utc":
+		if !validUTCTime(a.TimeUTC) || a.IntervalMinutes != 0 {
+			return errors.New("time_utc must use HH:MM (UTC)")
+		}
+	default:
+		return errors.New("legacy trigger is not executable; recreate as manual, interval, or daily_utc")
+	}
+	return nil
 }
 
 func nextSchedule(a Automation, now time.Time) time.Time {
@@ -140,9 +157,16 @@ func (s *Server) enqueueDueSchedules(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if e := validateStoredSchedule(a); e != nil {
+			_, _ = s.db.ExecContext(ctx, `UPDATE automations SET enabled=0,validation_error=?,updated_at=? WHERE id=? AND next_run_at=?`, e.Error(), now.Format(time.RFC3339Nano), a.ID, a.NextRunAt)
+			continue
+		}
 		snap, e := s.jobSnapshot(a.ID)
 		if e != nil {
-			_, _ = s.db.ExecContext(ctx, `UPDATE automations SET enabled=0,validation_error=?,updated_at=? WHERE id=?`, e.Error(), now.Format(time.RFC3339Nano), a.ID)
+			// Agent readiness can change (disabled agent, missing probe, temporary
+			// model configuration). Keep the schedule enabled and retry next time.
+			next := nextSchedule(a, now)
+			_, _ = s.db.ExecContext(ctx, `UPDATE automations SET next_run_at=?,validation_error=?,updated_at=? WHERE id=? AND enabled=1 AND next_run_at=?`, next.Format(time.RFC3339Nano), e.Error(), now.Format(time.RFC3339Nano), a.ID, a.NextRunAt)
 			continue
 		}
 		payload, e := json.Marshal(snap)
@@ -165,7 +189,7 @@ func (s *Server) enqueueDueSchedules(ctx context.Context) error {
 		}
 		res, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO jobs(id,automation_id,idempotency_key,status,run_after,created_at,updated_at,run_id,step_key,payload_json) VALUES(?,?,?,'queued',?,?,?,?,?,?)`, jid, a.ID, idem, occurrence.UTC().Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, step, string(payload))
 		if e == nil {
-			_, e = tx.ExecContext(ctx, `UPDATE automations SET next_run_at=?,updated_at=? WHERE id=? AND next_run_at=?`, next.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), a.ID, a.NextRunAt)
+			_, e = tx.ExecContext(ctx, `UPDATE automations SET next_run_at=?,validation_error='',updated_at=? WHERE id=? AND next_run_at=?`, next.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), a.ID, a.NextRunAt)
 		}
 		if e != nil {
 			_ = tx.Rollback()
@@ -244,7 +268,7 @@ func (s *Server) executeJob(parent context.Context, id, runID, payload, owner st
 		return s.finishJob(id, owner, "needs_review", "external tool outcome is unknown; reconcile before retry")
 	case "failed":
 		return s.finishJob(id, owner, "failed", state.Error)
-	case "awaiting_approval", "recoverable":
+	case "awaiting_approval", "recoverable", "interrupted":
 	case "queued":
 	default:
 		return s.finishJob(id, owner, "needs_review", "run is in an unexpected state; manual review required")
@@ -287,6 +311,12 @@ func (s *Server) executeJob(parent context.Context, id, runID, payload, owner st
 	if uncertainCalls > 0 {
 		return s.finishJob(id, owner, "needs_review", "tool outcome may be uncertain; reconcile before any retry")
 	}
+	if state.Status == "completed" {
+		return s.finishJob(id, owner, "completed", "")
+	}
+	if parent.Err() != nil && (errors.Is(runErr, context.Canceled) || state.Status == "recoverable" || state.Status == "interrupted" || state.Status == "running" || state.Status == "awaiting_approval") {
+		return s.recoverInterruptedJob(id, owner, &state)
+	}
 	if runErr != nil && state.Status == "failed" && state.Error == "model request failed" && parent.Err() == nil {
 		if scheduled, retryErr := s.retryModelOnly(id, owner, &state); retryErr == nil && scheduled {
 			return nil
@@ -316,7 +346,6 @@ func (s *Server) retryModelOnly(id, owner string, state *engine.State) (bool, er
 	}
 	state.Status = "recoverable"
 	state.Error = "model request failed; safe retry scheduled"
-	state.StartedAt = s.automationClock().UTC()
 	if err := s.Save(context.Background(), state); err != nil {
 		return false, err
 	}
@@ -331,6 +360,51 @@ func (s *Server) retryModelOnly(id, owner string, state *engine.State) (bool, er
 	}
 	n, err := res.RowsAffected()
 	return n == 1, err
+}
+
+func (s *Server) recoverInterruptedJob(id, owner string, state *engine.State) error {
+	var pending, uncertain int
+	if err := s.db.QueryRow(`SELECT count(*) FROM tool_calls WHERE run_id=? AND status='pending'`, state.ID).Scan(&pending); err != nil {
+		return err
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM tool_calls WHERE run_id=? AND status IN ('dispatched','failed')`, state.ID).Scan(&uncertain); err != nil {
+		return err
+	}
+	if uncertain > 0 {
+		return s.finishJob(id, owner, "needs_review", "daemon stopped while a tool outcome may be uncertain; reconcile before retry")
+	}
+	if pending > 0 {
+		state.Status = "awaiting_approval"
+		state.Error = ""
+		if err := s.Save(context.Background(), state); err != nil {
+			return err
+		}
+		return s.finishJob(id, owner, "awaiting_approval", "")
+	}
+	// A pending model-generated tool request without a durable policy record is
+	// requeued as interrupted. Advance will recheck policy before any dispatch.
+	if len(state.Pending) > 0 {
+		state.Status = "interrupted"
+		state.Error = "daemon stopped before policy dispatch; pending request will be rechecked"
+	} else {
+		// Only succeeded tool results may remain. Unfinished intents were
+		// excluded above, so continuation cannot repeat an external call.
+		state.Status = "recoverable"
+		state.Error = "daemon stopped; safe continuation queued"
+	}
+	if err := s.Save(context.Background(), state); err != nil {
+		return err
+	}
+	when := s.automationClock().UTC().Format(time.RFC3339Nano)
+	res, err := s.db.Exec(`UPDATE jobs SET status='queued',run_after=?,last_error='daemon stopped; safe continuation queued',lease_until='',lease_owner='',updated_at=? WHERE id=? AND status='running' AND lease_owner=?`, when, when, id, owner)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 1 {
+		s.event("job.recovered_after_shutdown", "scheduler", map[string]any{"job_id": id, "run_id": state.ID, "step_key": "job:" + id + ":agent-run:v1"})
+	}
+	return err
 }
 
 func jobState(state string, runErr error) (string, string) {
@@ -408,8 +482,27 @@ func (s *Server) recoverJobs() error {
 			} else {
 				_, err = s.db.Exec(`UPDATE jobs SET status='failed',last_error='Scheduled run failed before restart.',lease_until='',lease_owner='',updated_at=? WHERE id=?`, now(), j.id)
 			}
-		case state.Status == "recoverable":
-			_, err = s.db.Exec(`UPDATE jobs SET status='queued',last_error='',lease_until='',lease_owner='',run_after=?,updated_at=? WHERE id=?`, now(), now(), j.id)
+		case state.Status == "recoverable" || state.Status == "interrupted":
+			recoveryStatus, reason, e := s.pendingRecoveryStatus(state)
+			if e != nil {
+				return e
+			}
+			if recoveryStatus != state.Status || state.Error != reason {
+				state.Status, state.Error = recoveryStatus, reason
+				if err = s.Save(context.Background(), &state); err != nil {
+					return err
+				}
+			}
+			switch recoveryStatus {
+			case "outcome_unknown":
+				_, err = s.db.Exec(`UPDATE jobs SET status='needs_review',last_error=?,lease_until='',lease_owner='',updated_at=? WHERE id=?`, reason, now(), j.id)
+			case "failed":
+				_, err = s.db.Exec(`UPDATE jobs SET status='failed',last_error=?,lease_until='',lease_owner='',updated_at=? WHERE id=?`, reason, now(), j.id)
+			case "awaiting_approval":
+				_, err = s.db.Exec(`UPDATE jobs SET status='awaiting_approval',last_error='',lease_until='',lease_owner='',updated_at=? WHERE id=?`, now(), j.id)
+			default:
+				_, err = s.db.Exec(`UPDATE jobs SET status='queued',last_error='',lease_until='',lease_owner='',run_after=?,updated_at=? WHERE id=?`, now(), now(), j.id)
+			}
 		case state.Status == "queued":
 			_, err = s.db.Exec(`UPDATE jobs SET status='queued',last_error='',lease_until='',lease_owner='',run_after=?,updated_at=? WHERE id=?`, now(), now(), j.id)
 		default:

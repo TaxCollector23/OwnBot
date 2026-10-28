@@ -57,7 +57,7 @@ func NewClient(apiURL, dataDir string) (*Client, error) {
 	}
 	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
-		return nil, errors.New("could not read local API token; start `ownyourbot daemon start` and check the selected data directory")
+		return nil, errors.New("could not read local API token; start `ownbot daemon start` and check the selected data directory")
 	}
 	token := strings.TrimSpace(string(tokenBytes))
 	if len(token) != 64 {
@@ -84,18 +84,18 @@ func verifyDaemonIdentity(baseURL string) error {
 	// owner token until the listener proves it is this application's daemon.
 	resp, err := directHTTPClient(2 * time.Second).Do(req)
 	if err != nil {
-		return errors.New("could not verify OwnYourBot daemon identity; authenticated request was not sent")
+		return errors.New("could not verify OwnBot daemon identity; authenticated request was not sent")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("target does not identify as an OwnYourBot daemon; authenticated request was not sent")
+		return errors.New("target does not identify as an OwnBot daemon; authenticated request was not sent")
 	}
 	var identity struct {
 		OK      bool   `json:"ok"`
 		Service string `json:"service"`
 	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&identity) != nil || !identity.OK || identity.Service != "ownyourbot" {
-		return errors.New("target does not identify as an OwnYourBot daemon; authenticated request was not sent")
+	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&identity) != nil || !identity.OK || identity.Service != "ownbot" {
+		return errors.New("target does not identify as an OwnBot daemon; authenticated request was not sent")
 	}
 	return nil
 }

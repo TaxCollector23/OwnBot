@@ -98,6 +98,38 @@ func TestWriteWaitsForApprovalAndResumesExactCall(t *testing.T) {
 		t.Fatal("completed run executed twice")
 	}
 }
+
+func TestApprovalWaitDoesNotConsumeActiveRunTimeout(t *testing.T) {
+	n := 0
+	r := NewRegistry()
+	register(t, r, "change", Irreversible, "native", &n)
+	c := testConfig()
+	c.TimeoutSeconds = 1
+	m := &fakeModel{responses: []models.Response{toolResponse("change", `{"title":"test"}`), {Message: models.Message{Content: "done"}, Usage: models.Usage{TotalTokens: 1}}}}
+	control := &memoryControl{}
+	runner := Runner{Model: m, Registry: r, Control: control}
+	state := NewState("run", c, "create a task")
+	state.StartedAt = time.Now().Add(-30 * time.Minute) // simulate a long human approval wait
+	originalStart := state.StartedAt
+	if err := runner.Advance(context.Background(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "awaiting_approval" || !state.ActiveStartedAt.IsZero() {
+		t.Fatalf("pause status=%s active-start=%v", state.Status, state.ActiveStartedAt)
+	}
+	activeBefore := state.ActiveNanos
+	stepsBefore, tokensBefore := state.Steps, state.Tokens
+	control.approved = true
+	if err := runner.Advance(context.Background(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "completed" || state.StartedAt != originalStart {
+		t.Fatalf("resume did not preserve original start/status: %+v", state)
+	}
+	if state.ActiveNanos <= activeBefore || state.Steps <= stepsBefore || state.Tokens <= tokensBefore {
+		t.Fatal("resume reset cumulative execution accounting")
+	}
+}
 func TestForcedDisabledToolsAreHiddenAndRefused(t *testing.T) {
 	for _, source := range []string{"mcp", "web_search"} {
 		t.Run(source, func(t *testing.T) {
@@ -175,7 +207,7 @@ func TestLimitsAndRestrictedMode(t *testing.T) {
 			case "steps":
 				state.Steps = c.MaxSteps
 			case "timeout":
-				state.StartedAt = time.Now().Add(-time.Hour)
+				state.ActiveNanos = int64(time.Hour)
 			}
 			runner := Runner{Model: m, Registry: NewRegistry(), Control: &memoryControl{}}
 			if runner.Advance(context.Background(), &state) == nil || len(m.requests) != 0 {

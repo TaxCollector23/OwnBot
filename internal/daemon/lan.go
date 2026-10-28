@@ -89,7 +89,7 @@ func LANCertificate(dir, address string) (*tls.Config, string, error) {
 	serial, err := rand.Int(rand.Reader,new(big.Int).Lsh(big.NewInt(1),128))
 	if err != nil { return nil,"",err }
 	now := time.Now()
-	template := &x509.Certificate{SerialNumber:serial,Subject:pkix.Name{CommonName:"OwnYourBot local network"},NotBefore:now.Add(-5*time.Minute),NotAfter:now.AddDate(1,0,0),IPAddresses:[]net.IP{net.ParseIP(host)},KeyUsage:x509.KeyUsageDigitalSignature,ExtKeyUsage:[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},BasicConstraintsValid:true}
+	template := &x509.Certificate{SerialNumber:serial,Subject:pkix.Name{CommonName:"ownbot local network"},NotBefore:now.Add(-5*time.Minute),NotAfter:now.AddDate(1,0,0),IPAddresses:[]net.IP{net.ParseIP(host)},KeyUsage:x509.KeyUsageDigitalSignature,ExtKeyUsage:[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},BasicConstraintsValid:true}
 	der, err := x509.CreateCertificate(rand.Reader,template,template,&key.PublicKey,key)
 	if err != nil { return nil,"",err }
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)

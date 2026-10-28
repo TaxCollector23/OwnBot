@@ -63,7 +63,7 @@ function createHarness(validToken, fragment = '', rejectBootstrap = false) {
     if (path === '/api/access' && authorized) return response(200, JSON.stringify({enabled:true, urls:['https://10.0.0.2:8766/dashboard']}));
     const code = status ? 200 : authorized ? 200 : 401;
     const body = status
-      ? JSON.stringify({ok:true, service:'ownyourbot', version:'test', api_token_required:true})
+      ? JSON.stringify({ok:true, service:'ownbot', version:'test', api_token_required:true})
       : code === 200 ? '[]' : 'unauthorized';
     return response(code, body);
   };
@@ -115,7 +115,7 @@ async function main() {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(expiredBootstrap.window.replacedURL, '/dashboard', 'expired ticket is removed from the address before exchange');
   assert.match(expiredBootstrap.element('#page-message').textContent, /invalid or expired/i, 'expired link explains the failure');
-  assert.match(expiredBootstrap.element('#page-message').textContent, /Run ownyourbot daemon start/i, 'expired link explains how to get a fresh session');
+  assert.match(expiredBootstrap.element('#page-message').textContent, /Run ownbot daemon start/i, 'expired link explains how to get a fresh session');
   assert.equal(expiredBootstrap.storage.has('ownbot.api-token'), false, 'expired ticket never stores an owner token');
   assert.equal(expiredBootstrap.element('#access-state').textContent, 'Locked', 'expired ticket leaves Access locked');
   assert.equal(expiredBootstrap.element('#create-pairing-button').disabled, true, 'expired ticket cannot unlock pairing controls');

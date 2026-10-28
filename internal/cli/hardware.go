@@ -101,7 +101,7 @@ func runHardwareChecks(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if !daemonHealthy(*apiURL) {
-		report.DaemonError = "local API is unavailable or did not identify itself as OwnYourBot; no authenticated request was sent"
+		report.DaemonError = "local API is unavailable or did not identify itself as OwnBot; no authenticated request was sent"
 		return writeJSON(stdout, report)
 	}
 	client, err := clientFor(*apiURL, *dataDir)

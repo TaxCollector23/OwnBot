@@ -23,14 +23,17 @@ import (
 
 func runDaemon(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || (len(args) > 1 && (args[1] == "--help" || args[1] == "-h")) {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownyourbot daemon start [daemon flags] | stop [--url URL] [--data-dir DIR]\n\nStarts or stops the local daemon. Start options include --config, --data-dir, --listen, --socket, --lan, --lan-address, and --shutdown-timeout.")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot daemon start|stop|install|uninstall|status [daemon flags]\n\nStart or stop the local daemon, install or remove its per-user login service, or inspect service status. install/uninstall never request administrator access. Options include --config, --data-dir, --listen, --socket, --lan, --lan-address, and --shutdown-timeout.")
 		return nil
+	}
+	if args[0] == "install" || args[0] == "uninstall" || args[0] == "status" {
+		return runServiceCommand(args[0], args[1:], stdout, stderr)
 	}
 	if args[0] == "stop" {
 		return stopDaemon(args[1:], stdout, stderr)
 	}
 	if args[0] != "start" {
-		return fmt.Errorf("unknown daemon command %q; use `ownyourbot daemon start` or `stop`", args[0])
+		return fmt.Errorf("unknown daemon command %q; use `ownbot daemon start|stop|install|uninstall|status`", args[0])
 	}
 	cfg, err := daemon.Load(args[1:], os.Getenv, io.Discard)
 	if err != nil {
@@ -57,7 +60,7 @@ func runDaemon(args []string, stdout, stderr io.Writer) error {
 			return clientErr
 		}
 		if !access.Enabled {
-			return errors.New("daemon is already running without LAN access; run `ownyourbot daemon stop`, then `ownyourbot daemon start --lan`")
+			return errors.New("daemon is already running without LAN access; run `ownbot daemon stop`, then `ownbot daemon start --lan`")
 		}
 		expectedURL := "https://" + cfg.LANAddr + "/dashboard"
 		matchedAddress := false
@@ -68,9 +71,9 @@ func runDaemon(args []string, stdout, stderr io.Writer) error {
 			}
 		}
 		if !matchedAddress {
-			return fmt.Errorf("daemon is already running with a different LAN address; run `ownyourbot daemon stop`, then start with --lan-address %s", cfg.LANAddr)
+			return fmt.Errorf("daemon is already running with a different LAN address; run `ownbot daemon stop`, then start with --lan-address %s", cfg.LANAddr)
 		}
-		_, _ = fmt.Fprintln(stdout, "OwnYourBot daemon is already running with LAN HTTPS access.")
+		_, _ = fmt.Fprintln(stdout, "OwnBot daemon is already running with LAN HTTPS access.")
 		for _, address := range access.URLs {
 			_, _ = fmt.Fprintln(stdout, address)
 		}
@@ -140,7 +143,7 @@ func stopDaemon(args []string, stdout, stderr io.Writer) error {
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if !daemonHealthy(*apiURL) {
-			_, _ = fmt.Fprintln(stdout, "OwnYourBot daemon stopped.")
+			_, _ = fmt.Fprintln(stdout, "OwnBot daemon stopped.")
 			return nil
 		}
 		time.Sleep(150 * time.Millisecond)
@@ -192,7 +195,7 @@ func daemonHealthy(apiURL string) bool {
 		OK      bool   `json:"ok"`
 		Service string `json:"service"`
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body) == nil && body.OK && body.Service == "ownyourbot"
+	return json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body) == nil && body.OK && body.Service == "ownbot"
 }
 
 func daemonAddressAvailable(apiURL string) (bool, error) {
@@ -217,15 +220,41 @@ func daemonAddressAvailable(apiURL string) (bool, error) {
 }
 
 func openOwnerDashboard(apiURL, dataDir string) error {
+	return openOwnerDashboardWith(apiURL, dataDir, os.Stderr, launchOwnerDashboard, sshSession())
+}
+
+func openOwnerDashboardWith(apiURL, dataDir string, stderr io.Writer, launch func(string) bool, ssh bool) error {
 	address, err := createOwnerDashboardURL(apiURL, dataDir)
 	if err != nil {
 		return err
 	}
-	if !launchOwnerDashboard(address) {
-		localDashboard := strings.TrimRight(apiURL, "/") + "/dashboard"
-		_, _ = fmt.Fprintf(os.Stderr, "Could not open the dashboard automatically. Open %s on the host; if it stays locked, rerun the same `ownyourbot daemon start` command with the same --listen and --data-dir options to open a fresh owner session.\n", localDashboard)
+	if ssh {
+		writeOwnerDashboardFallback(stderr, apiURL, address, true)
+		return nil
+	}
+	if !launch(address) {
+		writeOwnerDashboardFallback(stderr, apiURL, address, false)
 	}
 	return nil
+}
+
+func sshSession() bool {
+	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_CLIENT") != "" || os.Getenv("SSH_TTY") != ""
+}
+
+func writeOwnerDashboardFallback(w io.Writer, apiURL, address string, ssh bool) {
+	if ssh {
+		u, err := url.Parse(apiURL)
+		if err == nil {
+			_, port, splitErr := net.SplitHostPort(u.Host)
+			if splitErr == nil {
+				_, _ = fmt.Fprintf(w, "Dashboard is running on the SSH host. From your local computer, keep this tunnel open (use the same SSH target you logged in to): `ssh -N -L %s:127.0.0.1:%s <user>@<host>`\n", port, port)
+			}
+		}
+		_, _ = fmt.Fprintf(w, "Open this one-time owner link in your local browser within 60 seconds: %s\n", address)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Could not open the dashboard automatically. Open this one-time owner link in a browser within 60 seconds: %s\n", address)
 }
 
 var launchOwnerDashboard = tryOpenURL
@@ -327,7 +356,7 @@ func runHarness(stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	reader := bufio.NewReader(stdin)
 	for {
-		_, _ = io.WriteString(stdout, "ownyourbot> ")
+		_, _ = io.WriteString(stdout, "ownbot> ")
 		line, err := reader.ReadString('\n')
 		line = strings.TrimSpace(line)
 		if line == "quit" || line == "exit" {
@@ -392,7 +421,7 @@ func runDefaultTask(task string, reader *bufio.Reader, stdout io.Writer) error {
 		}
 	}
 	if len(enabled) == 0 {
-		return errors.New("no enabled agents are available; create and enable one with `ownyourbot setup` and the dashboard")
+		return errors.New("no enabled agents are available; create and enable one with `ownbot setup` and the dashboard")
 	}
 	selected := ""
 	if len(enabled) == 1 {

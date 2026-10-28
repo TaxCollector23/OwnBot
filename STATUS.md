@@ -1,24 +1,20 @@
 # Release status
 
-Audit: 2026-10-27. OwnYourBot remains an alpha. Repository tests and package checks are local development evidence, not a clean-machine or live-service release sign-off.
+Updated 2026-10-28. `ownbot` is still in development. Do not treat this checkout as a signed or production release. The renamed `ownbot` package is not yet available from npm, and the GitHub Pages workflow has not been deployed.
 
-## Verified in this checkout
+## Current scope
 
-- `npm test` passes, including the Go tests and dashboard authentication, runtime, and LAN pairing regressions.
-- `npm pack --dry-run` succeeds for `ownyourbot@0.1.0-alpha.4`.
-- LAN daemon startup supports `ownyourbot daemon start --lan`; device pairing and revocation have automated server and dashboard coverage.
-- The [isolated LAN lab workflow](https://github.com/TaxCollector23/OwnBot/actions/runs/40557519399) passed on commit `93e3221`. It exercised the real HTTPS listener across two Linux Docker bridge containers, including loopback isolation, pairing, replay rejection, separate device credentials, revocation, and restart persistence.
-- CLI and daemon cross-compile for macOS, Linux, FreeBSD, and Windows targets. Runtime installation was not tested on each OS.
-- The CLI exposes `setup`, `connect`, `daemon start`, `daemon stop`, `inspect`, and `help`. Setup and capability-probe fixture checks pass.
-- The hosted landing remains static; it points users to their local daemon and does not provide cellular or public internet access.
+- The CLI supports local model detection and capability probing, daemon controls, and a local dashboard.
+- Setup detects installed models from Ollama, LM Studio, llama.cpp, and vLLM. It does not download models or configure hosted provider keys.
+- LAN mode provides HTTPS pairing for devices on the host's private network. It does not provide cellular or public internet access.
+- macOS and Linux user-level service management is implemented; verify it on the target machine before relying on it for unattended operation.
 
-## Still requires verification or implementation
+## Release work remaining
 
-- **Same-Wi-Fi physical test:** verify a second laptop, iPhone, and Android device can trust the self-signed certificate in real browsers, pair, use the dashboard, and lose access after revocation. The Linux bridge lab does not verify physical Wi-Fi, browser trust, mobile devices, router client isolation, or host firewall behavior.
-- **Cellular/public access:** tunnel or relay support is future work; pairing currently targets the host's private LAN address.
-- **Service installation:** LaunchAgent/systemd installation and clean GUI-only/SSH-only installs remain deferred.
-- **Provider OAuth:** credential storage and real connect/read/write/disconnect flows for Calendar, email, Notion, or Calendly remain deferred.
-- Live model quality and capability probes on Ollama, llama.cpp, LM Studio, vLLM, or hosted APIs.
-- Durable scheduled execution across restart, full threat-model coverage, signed updates and rollback, twenty scheduled runs without duplicates, and the fifteen-minute setup target.
+- Verify a clean SSH-only setup and dashboard access through the printed SSH tunnel flow.
+- Test certificate trust, pairing, dashboard use, and revocation with real second-laptop and mobile devices on Wi-Fi.
+- Add and verify cellular/public access before documenting it as supported.
+- Validate local model probes on target hardware and complete real account integration, automation, security, update, and rollback checks in the [release gate](docs/release-gate.md).
+- Publish signed artifacts and the `ownbot` npm package only after the applicable release checks pass.
 
-See [TODO.md](TODO.md), [docs/lan-access.md](docs/lan-access.md), and [docs/release-gate.md](docs/release-gate.md) before a stable release. Do not publish this alpha as meeting the full product acceptance gate.
+Automated tests and the isolated LAN lab do not establish physical-device, target-hardware, or public-release readiness. Check the [LAN guide](docs/lan-access.md) and [TODO](TODO.md) for details.

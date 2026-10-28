@@ -41,7 +41,7 @@ func TestHardwareBenchmarkMeasuresConfiguredLocalCandidatesOnly(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/api/status":
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 		case "/v1/models":
 			_, _ = io.WriteString(w, `{"data":[{"id":"qwen-fast"},{"id":"qwen-slow"}]}`)
 		case "/api/models":

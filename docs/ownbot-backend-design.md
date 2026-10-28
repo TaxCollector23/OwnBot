@@ -2,7 +2,7 @@
 
 Authoritative source: the earlier user-supplied draft, confirmed 2026-10-26. The removed connector and its workflow have been omitted as explicitly requested. Account integrations use public MCP servers per the user. Milestone and test ordering comes from the finish prompt. This draft has no numbered section 7 or threat table; security coverage must be traced to the concrete security requirements below.
 
-Status: draft v0.1. "Ownbot" is a working name.
+Status: draft v0.1. "ownbot" is the project name.
 A daemon that runs on a user's own PC. It drives any LLM, runs tool-using agents and automations against the user's accounts, and is controlled securely from a phone or laptop on any network. Setup works from a GUI or from a CLI over SSH.
 Non-goals (v1): multi-user or team deployment, a hosted cloud agent, training or fine-tuning models.
 ```

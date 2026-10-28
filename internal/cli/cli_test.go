@@ -18,7 +18,7 @@ import (
 func ownBotTestServer(next http.Handler) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -45,7 +45,7 @@ func TestSetupFromConfigIsHeadlessAndCreatesToolFreeAgent(t *testing.T) {
 	var modelCreated, agentCreated bool
 	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 			return
 		}
 		if r.URL.Path == "/v1/models" {
@@ -76,12 +76,12 @@ func TestSetupFromConfigIsHeadlessAndCreatesToolFreeAgent(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	config := "[model]\nname = \"Mini PC model\"\nprovider = \"openai_compatible\"\nbase_url = \"" + server.URL + "/v1\"\nmodel = \"qwen3:8b\"\n\n[agent]\nname = \"Calendar assistant\"\nprompt = \"Be careful.\"\n"
+	config := "[model]\nname = \"Mini PC model\"\nprovider = \"openai_compatible\"\nbase_url = \"" + server.URL + "/v1\"\nmodel = \"stale-config-model\"\n\n[agent]\nname = \"Calendar assistant\"\nprompt = \"Be careful.\"\n"
 	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr strings.Builder
-	err := Run([]string{"setup", "--yes", "--config", configPath, "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &stdout, &stderr)
+	err := Run([]string{"setup", "--yes", "--model", "qwen3:8b", "--config", configPath, "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("headless setup failed: %v (stderr: %s)", err, stderr.String())
 	}
@@ -183,7 +183,7 @@ func TestSetupInteractiveReadsBothPromptsFromSameInput(t *testing.T) {
 	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		if r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 			return
 		}
 		if r.URL.Path == "/v1/models" {
@@ -553,7 +553,7 @@ func TestRootCommandsAndBareTaskHarness(t *testing.T) {
 	if err := Run(nil, strings.NewReader(""), &harness, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(harness.String(), "OwnYourBot") != 1 || !strings.Contains(harness.String(), "Task harness") {
+	if strings.Count(harness.String(), "OwnBot") != 1 || !strings.Contains(harness.String(), "Task harness") {
 		t.Fatalf("bare invocation should show one wordmark and the local task harness: %s", harness.String())
 	}
 	var help strings.Builder
@@ -623,7 +623,7 @@ func TestSetupDoesNotCreateAgentWhenAnyProbeCapabilityFails(t *testing.T) {
 		case "/v1/models":
 			_, _ = io.WriteString(w, `{"data":[{"id":"local-model"}]}`)
 		case "/api/status":
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 		case "/api/models":
 			_, _ = io.WriteString(w, `{"id":"m1","name":"local","model":"local-model"}`)
 		case "/api/models/m1/probe":
@@ -684,7 +684,7 @@ func TestAuthenticatedCLIClientNeverUsesConfiguredHTTPProxy(t *testing.T) {
 	var localCalls, proxyCalls int
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		localCalls++
-		_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+		_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 	}))
 	defer api.Close()
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -716,7 +716,7 @@ func TestClientDoesNotSendOwnerTokenToWrongLocalService(t *testing.T) {
 	}))
 	defer api.Close()
 	client, err := NewClient(api.URL, dataDir)
-	if err == nil || client != nil || !strings.Contains(err.Error(), "does not identify as an OwnYourBot daemon") {
+	if err == nil || client != nil || !strings.Contains(err.Error(), "does not identify as an OwnBot daemon") {
 		t.Fatalf("wrong local service was accepted: client=%v err=%v", client, err)
 	}
 	if authorization != "" {
@@ -735,14 +735,14 @@ func TestDaemonStartAddressAndLoopbackStatusDetection(t *testing.T) {
 		t.Fatal("claimed browser dashboard support for Unix socket")
 	}
 	api := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+		_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 	}))
 	defer api.Close()
 	if !daemonHealthy(api.URL) {
 		t.Fatal("healthy loopback daemon was not detected")
 	}
 	remote := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+		_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 	}))
 	defer remote.Close()
 	if daemonHealthy(strings.Replace(remote.URL, "127.0.0.1", "example.com", 1)) {

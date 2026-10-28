@@ -66,7 +66,7 @@ func TestSensitiveReadRequiresTokenAndStatusIsLoopbackOnly(t *testing.T) {
 	var status struct {
 		Service string `json:"service"`
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Service != "ownyourbot" {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Service != "ownbot" {
 		t.Fatalf("status must identify this daemon: %d %s", w.Code, w.Body.String())
 	}
 }

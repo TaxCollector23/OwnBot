@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the real OwnYourBot LAN HTTPS path between isolated Docker peers."""
+"""Run the real ownbot LAN HTTPS path between isolated Docker peers."""
 import json
 import os
 import re

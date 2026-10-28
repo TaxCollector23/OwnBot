@@ -345,7 +345,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(`SELECT count(*) FROM approvals WHERE status='pending'`).Scan(&p)
 	_ = s.db.QueryRow(`SELECT count(*) FROM automations WHERE enabled=1`).Scan(&m)
 	_ = s.db.QueryRow(`SELECT count(*) FROM jobs WHERE status IN('queued','retry')`).Scan(&j)
-	write(w, 200, map[string]any{"ok": true, "service": "ownyourbot", "version": "development", "agents": a, "pending_approvals": p, "active_automations": m, "queued_jobs": j, "api_token_required": true})
+	write(w, 200, map[string]any{"ok": true, "service": "ownbot", "version": "development", "agents": a, "pending_approvals": p, "active_automations": m, "queued_jobs": j, "api_token_required": true})
 }
 
 type Agent struct {
@@ -787,7 +787,7 @@ func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
 	jid := newID()
 	stepKey := "job:" + jid + ":agent-run:v1"
 	runID := "jobrun-" + jid
-	res, e := s.db.Exec(`INSERT OR IGNORE INTO jobs(id,automation_id,idempotency_key,status,run_after,created_at,updated_at,run_id,step_key,payload_json)SELECT ?,id,?,'queued',?,?,?,?,?,? FROM automations WHERE id=? AND enabled=1 AND validation_error='' AND agent_id<>''`, jid, b.IdempotencyKey, at, at, at, runID, stepKey, string(payload), r.PathValue("id"))
+	res, e := s.db.Exec(`INSERT OR IGNORE INTO jobs(id,automation_id,idempotency_key,status,run_after,created_at,updated_at,run_id,step_key,payload_json)SELECT ?,id,?,'queued',?,?,?,?,?,? FROM automations WHERE id=? AND enabled=1 AND agent_id<>''`, jid, b.IdempotencyKey, at, at, at, runID, stepKey, string(payload), r.PathValue("id"))
 	if e != nil {
 		errJSON(w, 500, "could not queue job")
 		return
@@ -806,6 +806,7 @@ func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 404, "automation not found")
 		return
 	}
+	_, _ = s.db.Exec(`UPDATE automations SET validation_error='' WHERE id=? AND validation_error<>''`, r.PathValue("id"))
 	s.event("job.queued", "local-user", map[string]any{"job_id": jid, "automation_id": r.PathValue("id"), "idempotency_key": b.IdempotencyKey, "step_key": stepKey})
 	s.scheduleWake()
 	write(w, 201, map[string]any{"id": jid, "status": "queued", "run_after": at, "deduplicated": false})

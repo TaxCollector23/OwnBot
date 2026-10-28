@@ -8,7 +8,7 @@ import (
 
 func main() {
 	if err := cli.Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "OwnYourBot:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "ownbot:", err)
 		os.Exit(1)
 	}
 }

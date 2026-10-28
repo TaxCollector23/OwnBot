@@ -146,16 +146,18 @@ func (c Config) Allowed(t Tool) bool {
 }
 
 type State struct {
-	ID        string            `json:"id"`
-	Config    Config            `json:"config"`
-	Status    string            `json:"status"`
-	Messages  []models.Message  `json:"messages"`
-	Pending   []models.ToolCall `json:"pending,omitempty"`
-	Steps     int               `json:"steps"`
-	Tokens    int               `json:"tokens"`
-	Tainted   bool              `json:"tainted"`
-	StartedAt time.Time         `json:"started_at"`
-	Error     string            `json:"error,omitempty"`
+	ID              string            `json:"id"`
+	Config          Config            `json:"config"`
+	Status          string            `json:"status"`
+	Messages        []models.Message  `json:"messages"`
+	Pending         []models.ToolCall `json:"pending,omitempty"`
+	Steps           int               `json:"steps"`
+	Tokens          int               `json:"tokens"`
+	Tainted         bool              `json:"tainted"`
+	StartedAt       time.Time         `json:"started_at"`
+	ActiveNanos     int64             `json:"active_nanos,omitempty"`
+	ActiveStartedAt time.Time         `json:"active_started_at,omitempty"`
+	Error           string            `json:"error,omitempty"`
 }
 type Invocation struct {
 	RunID   string
@@ -190,11 +192,11 @@ type Runner struct {
 func NewState(id string, c Config, input string) State {
 	return State{ID: id, Config: c, Status: "queued", StartedAt: time.Now().UTC(), Messages: []models.Message{{Role: "system", Content: c.Prompt}, {Role: "user", Content: input}}}
 }
-func (r *Runner) Advance(ctx context.Context, s *State) error {
+func (r *Runner) Advance(ctx context.Context, s *State) (retErr error) {
 	if r.Model == nil || r.Registry == nil || r.Control == nil {
 		return errors.New("runner is not configured")
 	}
-	if s.Status != "queued" && s.Status != "awaiting_approval" && s.Status != "recoverable" {
+	if s.Status != "queued" && s.Status != "awaiting_approval" && s.Status != "recoverable" && s.Status != "interrupted" {
 		return errors.New("run cannot be resumed in its current state")
 	}
 	c := s.Config
@@ -204,9 +206,31 @@ func (r *Runner) Advance(ctx context.Context, s *State) error {
 	if c.MaxSteps < 1 || c.MaxTokens < 1 || c.TimeoutSeconds < 1 {
 		return r.fail(ctx, s, "run limits must be positive")
 	}
-	deadline := s.StartedAt.Add(time.Duration(c.TimeoutSeconds) * time.Second)
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	limit := time.Duration(c.TimeoutSeconds) * time.Second
+	activeElapsed := time.Duration(s.ActiveNanos)
+	if !s.ActiveStartedAt.IsZero() {
+		// A persisted active segment means the previous process stopped mid-run.
+		// Account it conservatively through recovery, then clear it before waiting
+		// for any user approval.
+		activeElapsed += time.Since(s.ActiveStartedAt)
+	}
+	if activeElapsed >= limit {
+		s.ActiveNanos = int64(activeElapsed)
+		s.ActiveStartedAt = time.Time{}
+		return r.fail(ctx, s, "run active-time limit reached")
+	}
+	segmentStart := time.Now()
+	s.ActiveStartedAt = segmentStart.UTC()
+	s.ActiveNanos = int64(activeElapsed)
+	ctx, cancel := context.WithTimeout(ctx, limit-activeElapsed)
 	defer cancel()
+	defer func() {
+		s.ActiveNanos += int64(time.Since(segmentStart))
+		s.ActiveStartedAt = time.Time{}
+		if err := r.Control.Save(context.WithoutCancel(ctx), s); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+	}()
 	s.Status = "running"
 	s.Error = ""
 	if err := r.Control.Save(ctx, s); err != nil {
@@ -214,6 +238,9 @@ func (r *Runner) Advance(ctx context.Context, s *State) error {
 	}
 	for {
 		if err := ctx.Err(); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return r.interrupted(context.WithoutCancel(ctx), s)
+			}
 			return r.fail(context.WithoutCancel(ctx), s, "run time limit reached")
 		}
 		if len(s.Pending) > 0 {
@@ -231,6 +258,9 @@ func (r *Runner) Advance(ctx context.Context, s *State) error {
 			}
 			d, err := r.Control.Before(ctx, inv, allowed)
 			if err != nil {
+				if errors.Is(ctx.Err(), context.Canceled) {
+					return r.interrupted(context.WithoutCancel(ctx), s)
+				}
 				return r.fail(context.WithoutCancel(ctx), s, "could not record tool decision")
 			}
 			if !allowed || (!d.Allowed && !d.Pending) {
@@ -287,6 +317,12 @@ func (r *Runner) Advance(ctx context.Context, s *State) error {
 		}
 		response, err := r.Model.Chat(ctx, models.Request{Model: c.Model, Messages: messages, Tools: tools, MaxTokens: c.MaxTokens - s.Tokens})
 		if err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+				return r.interrupted(context.WithoutCancel(ctx), s)
+			}
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return r.fail(context.WithoutCancel(ctx), s, "run active-time limit reached")
+			}
 			return r.fail(context.WithoutCancel(ctx), s, "model request failed")
 		}
 		s.Steps++
@@ -318,6 +354,21 @@ func (r *Runner) Advance(ctx context.Context, s *State) error {
 			return err
 		}
 	}
+}
+func (r *Runner) interrupted(ctx context.Context, s *State) error {
+	if len(s.Pending) == 0 {
+		s.Status = "recoverable"
+		s.Error = "run interrupted before tool dispatch; it can resume safely"
+	} else {
+		// The model has a pending tool request. Keep it distinct until the
+		// durable policy journal proves whether it needs approval or review.
+		s.Status = "interrupted"
+		s.Error = "run interrupted with a pending tool request; policy will be rechecked on resume"
+	}
+	if err := r.Control.Save(ctx, s); err != nil {
+		return err
+	}
+	return context.Canceled
 }
 func (r *Runner) fail(ctx context.Context, s *State, reason string) error {
 	s.Status = "failed"

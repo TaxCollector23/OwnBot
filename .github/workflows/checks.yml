@@ -1,0 +1,77 @@
+name: Native checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/checks.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'TODO.md'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    paths:
+      - '.github/workflows/checks.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'TODO.md'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-go-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run Go tests on native OS
+        run: go test ./...
+
+  freebsd-cross-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-build FreeBSD CLI and daemon
+        env:
+          CGO_ENABLED: '0'
+          GOARCH: amd64
+          GOOS: freebsd
+        run: go build -trimpath ./cmd/...
+
+  npm-package-dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Inspect npm package contents without publishing
+        run: npm pack --dry-run --ignore-scripts

@@ -1,48 +1,30 @@
-# OwnYourBot
+# ownbot
 
-Run agents on your own computer and review their work in a local dashboard. Alpha LAN pairing lets you open that dashboard from another device on the same Wi-Fi network. Internet and cellular access are future work.
+Run a local agent daemon and manage it from its dashboard or CLI. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
 
-## Install from npm
+## Install from source
 
 Requires Node.js 18+ and Go 1.24+.
 
 ```sh
-npm install -g ownyourbot@alpha
-ownyourbot daemon start
+git clone https://github.com/TaxCollector23/OwnBot.git
+cd OwnBot
+npm install -g .
+ownbot setup
 ```
 
-The dashboard opens at `http://127.0.0.1:8765/dashboard`. Its local API token is stored at `~/.ownbot/api.token`.
-When the CLI opens the dashboard, it uses a one-time loopback-only link to establish a 30-minute owner session in that browser tab. The API token is not placed in the link. If you open the URL manually and see a locked dashboard, run `ownyourbot daemon start` on the host to open an owner session.
+`setup` detects installed models in Ollama, LM Studio, llama.cpp, or vLLM, probes the selected model, then creates a text-only agent with no tools. It does not download a model or use a hosted provider key. If no model appears, install a local runtime, download a model you choose, then run setup again. For a model already installed, headless setup can use `ownbot setup --yes --model MODEL_ID`.
 
-## Pair a device on the same Wi-Fi
+Open the dashboard at <http://127.0.0.1:8765/dashboard>. The CLI starts the daemon and manages its local API token automatically. The token is daemon security for local CLI/dashboard access; it is not a model-provider key. It is generated under `~/.ownbot/` and does not need to be created or copied for CLI setup.
 
-On the host computer, start the daemon with LAN access:
+## Use over SSH
 
-```sh
-ownyourbot daemon start --lan
-```
+On the host, install from source as above and run `ownbot setup`. Start `ownbot daemon start` from the SSH session. If it cannot open a browser, the CLI prints a one-time owner link and an SSH tunnel command. Keep the tunnel open, then open that link on your laptop. The token remains on the host.
 
-If it is already running without LAN access, restart it first:
+For LAN pairing, use `ownbot daemon start --lan` and follow the [LAN guide](docs/lan-access.md). Pairing is limited to the same private network.
 
-```sh
-ownyourbot daemon stop
-ownyourbot daemon start --lan
-```
+## Docs
 
-The CLI prints the HTTPS LAN address and certificate fingerprint, then opens the local dashboard with an owner session. Create a one-use pairing link in **LAN access**. Open that link on the device you want to pair and give the device a name. The host dashboard lists paired devices and can revoke them.
+[Hardware and model checks](docs/hardware.md) · [Daemon service](docs/service.md) · [LAN access](docs/lan-access.md) · [Release status](STATUS.md) · [Writing docs](docs/WRITING-DOCS.md) · [GitHub Pages guide](https://taxcollector23.github.io/OwnBot/)
 
-The local API defaults to `127.0.0.1:8765`. If another service is using that port, select a free loopback port, for example `ownyourbot daemon start --lan --listen 127.0.0.1:18765`, and open `http://127.0.0.1:18765/dashboard` on the host. Stop that daemon with `ownyourbot daemon stop --url http://127.0.0.1:18765` before restarting it.
-
-The self-signed HTTPS certificate needs to be checked and trusted on each browser device. Follow [the LAN access guide](docs/lan-access.md) before pairing. Pairing works only over the same local network; it does not provide cellular or public internet access.
-
-## Run from source
-
-Requires Go 1.24 or later.
-
-```sh
-go build -o ./bin/ownbotd ./cmd/ownbotd
-go build -o ./bin/ownbot ./cmd/ownbot
-./bin/ownbot daemon start
-```
-
-See [TODO.md](TODO.md), [the LAN access guide](docs/lan-access.md), and the [release gate](docs/release-gate.md) for implementation and verification status.
+After the `ownbot` package is published to npm, install it with `npm install -g ownbot@alpha`.

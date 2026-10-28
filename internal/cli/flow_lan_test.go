@@ -34,7 +34,7 @@ func TestDaemonStopUsesOwnerTokenAndWaitsForShutdown(t *testing.T) {
 				http.Error(w, "stopped", http.StatusServiceUnavailable)
 				return
 			}
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -55,7 +55,7 @@ func TestDaemonStartLanDoesNotClaimExistingNonLanDaemon(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		if r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 			return
 		}
 		if r.URL.Path == "/api/access" {
@@ -79,7 +79,7 @@ func TestDaemonStartLanDoesNotClaimExistingNonLanDaemon(t *testing.T) {
 	}
 }
 
-func TestGenericOKServiceDoesNotCountAsOwnYourBotOrGetStopped(t *testing.T) {
+func TestGenericOKServiceDoesNotCountAsOwnBotOrGetStopped(t *testing.T) {
 	var requests int
 	var shutdowns int
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func TestGenericOKServiceDoesNotCountAsOwnYourBotOrGetStopped(t *testing.T) {
 	}))
 	defer api.Close()
 	if daemonHealthy(api.URL) {
-		t.Fatal("generic ok status was accepted as OwnYourBot")
+		t.Fatal("generic ok status was accepted as OwnBot")
 	}
 	err := startDaemon(nil, api.URL, t.TempDir(), io.Discard, false)
 	if err == nil || !strings.Contains(err.Error(), "occupied") || !strings.Contains(err.Error(), "--listen") || requests != 2 || shutdowns != 0 {
@@ -103,7 +103,7 @@ func TestDaemonStartLanRejectsDifferentExistingLANAddress(t *testing.T) {
 	dataDir := tokenDir(t)
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/status" {
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 			return
 		}
 		if r.URL.Path == "/api/access" {
@@ -133,7 +133,7 @@ func TestExistingDaemonStartOpensOneTimeOwnerDashboardSession(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/status":
-			_, _ = io.WriteString(w, `{"ok":true,"service":"ownyourbot"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 		case "/api/access/bootstrap":
 			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testToken {
 				t.Errorf("bootstrap was not owner authenticated")
@@ -158,5 +158,54 @@ func TestExistingDaemonStartOpensOneTimeOwnerDashboardSession(t *testing.T) {
 	}
 	if !tokenIssued || !strings.Contains(opened, "/dashboard#bootstrap=fixture-one-use-bootstrap-ticket") || strings.Contains(opened, testToken) {
 		t.Fatalf("bootstrap not used safely: issued=%t url=%q", tokenIssued, opened)
+	}
+}
+
+func TestSSHOwnerDashboardFallbackPrintsTunnelAndOneTimeLink(t *testing.T) {
+	var output strings.Builder
+	writeOwnerDashboardFallback(&output, "http://127.0.0.1:18765", "http://127.0.0.1:18765/dashboard#bootstrap=one-use-ticket", true)
+	got := output.String()
+	for _, want := range []string{"ssh -N -L 18765:127.0.0.1:18765 <user>@<host>", "within 60 seconds", "#bootstrap=one-use-ticket"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("SSH dashboard instructions missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, testToken) {
+		t.Fatal("SSH dashboard instructions exposed the daemon API token")
+	}
+}
+
+func TestSSHOwnerDashboardSkipsBrowserOpener(t *testing.T) {
+	dataDir := tokenDir(t)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/status":
+			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
+		case "/api/access/bootstrap":
+			if r.Header.Get("Authorization") != "Bearer "+testToken {
+				t.Errorf("bootstrap request was not owner authenticated")
+			}
+			_, _ = io.WriteString(w, `{"ticket":"one-use-ticket"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	var output strings.Builder
+	called := false
+	err := openOwnerDashboardWith(api.URL, dataDir, &output, func(string) bool {
+		called = true
+		return true
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Fatal("SSH session invoked a desktop browser opener")
+	}
+	for _, want := range []string{"ssh -N -L", "#bootstrap=one-use-ticket"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("SSH setup output missing %q: %s", want, output.String())
+		}
 	}
 }

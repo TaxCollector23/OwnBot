@@ -1,9 +1,9 @@
 {
-  "name": "ownyourbot",
+  "name": "ownbot",
   "version": "0.1.0-alpha.4",
-  "description": "OwnYourBot local agent daemon (alpha)",
+  "description": "ownbot local agent daemon (alpha)",
   "bin": {
-    "ownyourbot": "scripts/ownbot.js"
+    "ownbot": "scripts/ownbot.js"
   },
   "files": [
     "cmd",

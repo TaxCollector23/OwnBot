@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,20 @@ func (m *errorOnceModel) Chat(_ context.Context, req models.Request) (models.Res
 	return models.Response{Message: models.Message{Content: "done"}, Usage: models.Usage{TotalTokens: 1}}, nil
 }
 func (m *errorOnceModel) Stream(context.Context, models.Request) (<-chan models.StreamEvent, error) {
+	panic("not used")
+}
+
+type cancelAwareModel struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (m *cancelAwareModel) Chat(ctx context.Context, _ models.Request) (models.Response, error) {
+	m.once.Do(func() { close(m.started) })
+	<-ctx.Done()
+	return models.Response{}, ctx.Err()
+}
+func (m *cancelAwareModel) Stream(context.Context, models.Request) (<-chan models.StreamEvent, error) {
 	panic("not used")
 }
 
@@ -143,6 +158,115 @@ func TestIntervalScheduleCreatesOneStableOccurrence(t *testing.T) {
 	want := now.Add(time.Minute).Format(time.RFC3339Nano)
 	if next != want {
 		t.Fatalf("next run=%s want=%s", next, want)
+	}
+}
+
+func TestDisabledAgentSkipsOccurrenceWithoutDisablingSchedule(t *testing.T) {
+	s, token := testApp(t)
+	stopTestWorker(t, s)
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	s.automationClock = func() time.Time { return now }
+	agent := configuredAgent(t, s, token)
+	s.modelClient = func(ModelConfig) models.Client { return &scriptedModel{} }
+	automation := createTestAutomation(t, s, token, agent, "interval", "")
+	if _, err := s.db.Exec(`UPDATE agents SET enabled=0 WHERE id=?`, agent); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if err := s.enqueueDueSchedules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var enabled int
+	var next, validation string
+	if err := s.db.QueryRow(`SELECT enabled,next_run_at,validation_error FROM automations WHERE id=?`, automation).Scan(&enabled, &next, &validation); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 1 || validation == "" || next != now.Add(time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("agent readiness should defer, not disable, schedule: enabled=%d next=%s error=%q", enabled, next, validation)
+	}
+	if _, err := s.db.Exec(`UPDATE agents SET enabled=1 WHERE id=?`, agent); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if err := s.runScheduledTick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var jobs, completed int
+	if err := s.db.QueryRow(`SELECT count(*),sum(status='completed') FROM jobs WHERE automation_id=?`, automation).Scan(&jobs, &completed); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || completed != 1 {
+		t.Fatalf("restored agent should resume schedule: jobs=%d completed=%d", jobs, completed)
+	}
+	if err := s.db.QueryRow(`SELECT validation_error FROM automations WHERE id=?`, automation).Scan(&validation); err != nil || validation != "" {
+		t.Fatalf("successful scheduled enqueue should clear readiness error %q (err=%v)", validation, err)
+	}
+}
+
+func TestGracefulCancellationRequeuesOnlyModelWork(t *testing.T) {
+	s, token := testApp(t)
+	stopTestWorker(t, s)
+	now := time.Now().UTC().Truncate(time.Second)
+	s.automationClock = func() time.Time { return now }
+	agent := configuredAgent(t, s, token)
+	blocking := &cancelAwareModel{started: make(chan struct{})}
+	var modelCalls int
+	s.modelClient = func(ModelConfig) models.Client {
+		modelCalls++
+		if modelCalls == 1 {
+			return blocking
+		}
+		return &scriptedModel{}
+	}
+	automation := createTestAutomation(t, s, token, agent, "manual", "")
+	w := request(t, s.Handler(), "POST", "/api/automations/"+automation+"/jobs", `{"idempotency_key":"shutdown-recovery"}`, "127.0.0.1:8765", "", token)
+	if w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.runScheduledTick(ctx) }()
+	<-blocking.started
+	var originalRun string
+	if err := s.db.QueryRow(`SELECT run_id FROM jobs WHERE id=?`, job.ID).Scan(&originalRun); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var status, runStatus string
+	if err := s.db.QueryRow(`SELECT status FROM jobs WHERE id=?`, job.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.loadRun(originalRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT status FROM runs WHERE id=?`, originalRun).Scan(&runStatus); err != nil {
+		t.Fatal(err)
+	}
+	if status != "queued" || state.Status != "recoverable" || runStatus != "recoverable" {
+		t.Fatalf("model-only cancellation should be resumable: job=%s state=%s stored=%s", status, state.Status, runStatus)
+	}
+	if _, err := s.db.Exec(`UPDATE jobs SET run_after=? WHERE id=?`, now.Format(time.RFC3339Nano), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.runScheduledTick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var finalStatus, finalRun string
+	if err := s.db.QueryRow(`SELECT status,run_id FROM jobs WHERE id=?`, job.ID).Scan(&finalStatus, &finalRun); err != nil {
+		t.Fatal(err)
+	}
+	if finalStatus != "completed" || finalRun != originalRun || modelCalls != 2 {
+		t.Fatalf("safe continuation failed: job=%s same_run=%v model calls=%d", finalStatus, finalRun == originalRun, modelCalls)
 	}
 }
 

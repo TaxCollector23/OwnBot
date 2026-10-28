@@ -114,7 +114,7 @@ func (s *Server) lanSecurity(next http.Handler) http.Handler {
 				return
 			}
 			if r.URL.Path == "/api/status" && r.Method == http.MethodGet {
-				write(w, 200, map[string]any{"ok": true, "service": "ownyourbot", "lan": true})
+				write(w, 200, map[string]any{"ok": true, "service": "ownbot", "lan": true})
 				return
 			}
 			if r.URL.Path == "/api/devices/pair" && r.Method == http.MethodPost {
