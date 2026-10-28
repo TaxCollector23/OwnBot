@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,10 +180,17 @@ func TestPreflightReportsUnavailableUserManager(t *testing.T) {
 		if !reflect.DeepEqual(append([]string{name}, args...), []string{"systemctl", "--user", "show-environment"}) {
 			t.Fatalf("unexpected preflight command: %s %v", name, args)
 		}
-		return os.ErrPermission
+		return errors.New("Failed to connect to bus: No medium found")
 	})
-	if err := Preflight(spec); err == nil || !strings.Contains(err.Error(), "systemd manager is unavailable") {
+	if err := Preflight(spec); !errors.Is(err, ErrUserManagerUnavailable) {
 		t.Fatalf("preflight error=%v", err)
+	}
+}
+
+func TestPreflightDoesNotTreatPermissionFailureAsMissingManager(t *testing.T) {
+	spec := testSpec(t, "linux", func(string, ...string) error { return os.ErrPermission })
+	if err := Preflight(spec); err == nil || errors.Is(err, ErrUserManagerUnavailable) || !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("permission failure was misclassified: %v", err)
 	}
 }
 

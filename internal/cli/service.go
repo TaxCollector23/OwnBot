@@ -227,7 +227,17 @@ func setupManagedDaemon(args []string, apiURL, dataDir string, stdout io.Writer)
 		return "", err
 	}
 	if err := installUserService(cfg, stdout); err != nil {
-		return "", err
+		return setupSessionFallback(runtime.GOOS, args, apiURL, dataDir, stdout, err, startDaemon)
 	}
 	return "Daemon is managed by the user login service.\n", nil
+}
+
+func setupSessionFallback(goos string, args []string, apiURL, dataDir string, stdout io.Writer, installErr error, start func([]string, string, string, io.Writer, bool) error) (string, error) {
+	if goos != "linux" || !errors.Is(installErr, service.ErrUserManagerUnavailable) {
+		return "", installErr
+	}
+	if err := start(args, apiURL, dataDir, stdout, false); err != nil {
+		return "", errors.Join(installErr, fmt.Errorf("could not start the session daemon: %w", err))
+	}
+	return "No systemd user manager is available; the daemon was started for this session only and will not restart at login.\n", nil
 }

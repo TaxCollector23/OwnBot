@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"ownbot/internal/daemon"
+	"ownbot/internal/service"
 )
 
 func TestServiceArgsPreserveListenerLANAndDataDirectory(t *testing.T) {
@@ -61,6 +63,34 @@ func TestServiceArgsExplicitlyDisableLANByDefault(t *testing.T) {
 	want := []string{"--data-dir", filepath.Clean("/tmp/state"), "--listen", "127.0.0.1:8765", "--lan=false", "--shutdown-timeout", "10s"}
 	if got := serviceArgs(cfg); !reflect.DeepEqual(got, want) {
 		t.Fatalf("service args = %#v, want %#v", got, want)
+	}
+}
+
+func TestSetupFallsBackForUnavailableLinuxUserManager(t *testing.T) {
+	installErr := fmt.Errorf("systemd unavailable: %w", service.ErrUserManagerUnavailable)
+	called := false
+	var output strings.Builder
+	notice, err := setupSessionFallback("linux", []string{"--data-dir", "/tmp/state"}, "http://127.0.0.1:8765", "/tmp/state", &output, installErr, func(args []string, apiURL, dataDir string, _ io.Writer, open bool) error {
+		called = true
+		if !reflect.DeepEqual(args, []string{"--data-dir", "/tmp/state"}) || apiURL != "http://127.0.0.1:8765" || dataDir != "/tmp/state" || open {
+			t.Fatalf("fallback start args=%v api=%s data=%s open=%v", args, apiURL, dataDir, open)
+		}
+		return nil
+	})
+	if err != nil || !called || !strings.Contains(notice, "session only") || !strings.Contains(notice, "will not restart at login") {
+		t.Fatalf("fallback notice=%q called=%t err=%v", notice, called, err)
+	}
+}
+
+func TestSetupDoesNotFallBackForOtherLinuxServiceInstallFailures(t *testing.T) {
+	installErr := errors.New("permission denied while installing the service")
+	called := false
+	notice, err := setupSessionFallback("linux", nil, "", "", io.Discard, installErr, func([]string, string, string, io.Writer, bool) error {
+		called = true
+		return nil
+	})
+	if called || notice != "" || !errors.Is(err, installErr) {
+		t.Fatalf("non-manager failure fell back: notice=%q called=%t err=%v", notice, called, err)
 	}
 }
 

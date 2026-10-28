@@ -3,10 +3,12 @@
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 
 
 def proc_tree_rss_kb(root_pid):
@@ -68,6 +70,7 @@ def baseline(runtime, model):
         "model": model,
         "model_digest": os.environ.get("MODEL_DIGEST", "unavailable"),
         "model_hash": os.environ.get("MODEL_HASH", "unavailable"),
+        "model_revision": os.environ.get("MODEL_REVISION", "unavailable"),
         "quantization": os.environ.get("MODEL_QUANT", "unavailable"),
         "runner_cpu": cpu,
         "runner_ram_total_kb": memory_kb,
@@ -79,6 +82,7 @@ def baseline(runtime, model):
         "pass": False,
         "failure_class": "setup_failure",
         "failure_stage": "runtime_setup",
+        "stage_history": [{"stage": "evidence_initialized", "at_utc": datetime.now(timezone.utc).isoformat()}],
         "evidence_boundary": "GitHub-hosted Linux CPU runner; not M1/M2/Metal performance or local hardware fit evidence. Capability probe is not quality or hallucination evaluation.",
     }
 
@@ -92,6 +96,41 @@ def write(path, report):
 
 def initialize(runtime, model, results_dir):
     write(evidence_path(results_dir, runtime), baseline(runtime, model))
+
+
+def set_stage(runtime, model, results_dir, stage):
+    path = evidence_path(results_dir, runtime)
+    report = baseline(runtime, model)
+    if path.exists():
+        try:
+            report.update(json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError):
+            pass
+    report["failure_stage"] = stage
+    report["failure_class"] = "setup_failure"
+    report.setdefault("stage_history", []).append({"stage": stage, "at_utc": datetime.now(timezone.utc).isoformat()})
+    write(path, report)
+
+
+def capture_server_log(runtime, model, results_dir, log_path):
+    path = evidence_path(results_dir, runtime)
+    report = baseline(runtime, model)
+    if path.exists():
+        try:
+            report.update(json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError):
+            pass
+    if not report.get("pass") and pathlib.Path(log_path).is_file():
+        with pathlib.Path(log_path).open("rb") as source:
+            source.seek(max(0, pathlib.Path(log_path).stat().st_size - 12000))
+            tail = source.read().decode("utf-8", errors="replace").splitlines()[-60:]
+        excerpt = "\n".join(tail)[-6000:]
+        excerpt = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", excerpt)
+        excerpt = re.sub(r"hf_[A-Za-z0-9]{10,}", "[REDACTED_TOKEN]", excerpt)
+        report["server_log_excerpt"] = excerpt
+    elif not report.get("pass"):
+        report["server_log_excerpt"] = "llama.cpp server log was not created"
+    write(path, report)
 
 
 def probe(runtime, model, base_url, results_dir):
@@ -108,9 +147,13 @@ def probe(runtime, model, base_url, results_dir):
         write(path, report)
         return False
 
-    report.update(baseline(runtime, model))
+    fresh = baseline(runtime, model)
+    for key, value in fresh.items():
+        if key != "stage_history":
+            report[key] = value
     report["failure_stage"] = "probe"
     report["failure_class"] = "probe_or_transport_failure"
+    report.setdefault("stage_history", []).append({"stage": "probe", "at_utc": datetime.now(timezone.utc).isoformat()})
     started = time.monotonic()
     root_pid = os.environ.get("RUNTIME_PID", "")
     stop = threading.Event()
@@ -158,6 +201,7 @@ def probe(runtime, model, base_url, results_dir):
     if report["pass"]:
         report["failure_class"] = "none"
         report["failure_stage"] = "complete"
+        report["stage_history"].append({"stage": "complete", "at_utc": datetime.now(timezone.utc).isoformat()})
     write(path, report)
     print(json.dumps({"runtime": runtime, "model": model, "pass": report["pass"], "probe_elapsed_ms": report["probe_elapsed_ms"], "failure_stage": report["failure_stage"]}, indent=2))
     return report["pass"]
@@ -165,15 +209,23 @@ def probe(runtime, model, base_url, results_dir):
 
 def main():
     if len(sys.argv) < 2:
-        raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
+        raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
     if sys.argv[1] == "init" and len(sys.argv) == 5:
         _, _, runtime, model, results_dir = sys.argv
         initialize(runtime, model, results_dir)
         return 0
+    if sys.argv[1] == "stage" and len(sys.argv) == 6:
+        _, _, runtime, model, results_dir, stage = sys.argv
+        set_stage(runtime, model, results_dir, stage)
+        return 0
+    if sys.argv[1] == "finalize" and len(sys.argv) == 6:
+        _, _, runtime, model, results_dir, log_path = sys.argv
+        capture_server_log(runtime, model, results_dir, log_path)
+        return 0
     if sys.argv[1] == "probe" and len(sys.argv) == 6:
         _, _, runtime, model, base_url, results_dir = sys.argv
         return 0 if probe(runtime, model, base_url, results_dir) else 1
-    raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
+        raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
 
 
 if __name__ == "__main__":

@@ -614,6 +614,65 @@ func TestDetectLocalModelsListsInstalledModelsForEverySupportedRuntime(t *testin
 	}
 }
 
+func TestSetupMultipleModelsUsesFirstOnEnterAndWithYes(t *testing.T) {
+	var created []string
+	var probes, agentsCreated int
+	api := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = io.WriteString(w, `{"data":[{"id":"first-model"},{"id":"second-model"}]}`)
+		case "/api/models":
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testToken {
+				t.Errorf("model request not authenticated: method=%s", r.Method)
+			}
+			var body struct {
+				Model string `json:"model"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode model request: %v", err)
+			}
+			created = append(created, body.Model)
+			_ = json.NewEncoder(w).Encode(modelConfig{ID: "model-1", Name: body.Model, Model: body.Model})
+		case "/api/models/model-1/probe":
+			probes++
+			_, _ = io.WriteString(w, `{"probe":{"score":100,"json_output":true,"single_tool":true,"tool_choice":true,"argument_accuracy":true,"restricted":false}}`)
+		case "/api/agents":
+			agentsCreated++
+			_, _ = io.WriteString(w, `{"id":"agent-1","name":"Assistant","model":"first-model"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	for _, scenario := range []struct {
+		name  string
+		args  []string
+		input string
+	}{
+		{name: "enter selects first", input: "\n"},
+		{name: "yes selects first", args: []string{"--yes"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			dataDir := tokenDir(t)
+			args := append([]string{"setup", "--base-url", api.URL + "/v1", "--url", api.URL, "--data-dir", dataDir}, scenario.args...)
+			var output strings.Builder
+			if err := Run(args, strings.NewReader(scenario.input), &output, io.Discard); err != nil {
+				t.Fatalf("setup failed: %v; output=%s", err, output.String())
+			}
+			if !strings.Contains(output.String(), "Next: ownbot") {
+				t.Fatalf("setup missing next step: %s", output.String())
+			}
+		})
+	}
+	if !reflect.DeepEqual(created, []string{"first-model", "first-model"}) {
+		t.Fatalf("setup model choices=%v", created)
+	}
+	if probes != 2 || agentsCreated != 2 {
+		t.Fatalf("setup probes=%d agents=%d; expected each model selection to be probed before agent creation", probes, agentsCreated)
+	}
+}
+
 func TestSetupDoesNotCreateAgentWhenAnyProbeCapabilityFails(t *testing.T) {
 	dataDir := tokenDir(t)
 	configPath := filepath.Join(t.TempDir(), "setup.toml")

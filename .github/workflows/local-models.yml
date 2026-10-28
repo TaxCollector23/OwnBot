@@ -2,19 +2,20 @@ name: Local model capability lab
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/local-models.yml'
-      - 'scripts/local-model-lab/**'
-      - 'internal/models/**'
-      - 'go.mod'
-      - 'go.sum'
+    inputs:
+      runtime:
+        description: Runtime to test (use llama-cpp to avoid rerunning Ollama)
+        type: choice
+        options: [both, ollama, llama-cpp]
+        default: both
+        required: true
 
 permissions:
   contents: read
 
 jobs:
   ollama:
+    if: github.event_name != 'workflow_dispatch' || inputs.runtime == 'both' || inputs.runtime == 'ollama'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -72,6 +73,7 @@ jobs:
           if-no-files-found: error
 
   llama-cpp:
+    if: github.event_name != 'workflow_dispatch' || inputs.runtime == 'both' || inputs.runtime == 'llama-cpp'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -88,30 +90,60 @@ jobs:
         run: go build -trimpath -o "$RUNNER_TEMP/model-probe" ./scripts/local-model-lab
       - name: Build llama.cpp CPU server
         run: |
+          python3 scripts/local-model-lab/run.py stage llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 "$RUNNER_TEMP/model-evidence" build_runtime
           sudo apt-get update
           sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
           cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -DGGML_NATIVE=OFF -DGGML_CURL=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
           cmake --build "$RUNNER_TEMP/llama.cpp/build" --config Release -j2 --target llama-server
           echo "RUNTIME_VERSION=$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" >> "$GITHUB_ENV"
-      - name: Start llama.cpp and load the pinned model
+      - name: Download pinned official Qwen GGUF
         run: |
-          "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" --host 127.0.0.1 --port 8080 -hf Qwen/Qwen3-1.7B-GGUF:Q8_0 --ctx-size 2048 --n-gpu-layers 0 > "$RUNNER_TEMP/llama.log" 2>&1 &
+          python3 scripts/local-model-lab/run.py stage llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 "$RUNNER_TEMP/model-evidence" model_download
+          model_revision=90862c4b9d2787eaed51d12237eafdfe7c5f6077
+          model_file=Qwen3-1.7B-Q8_0.gguf
+          python3 - "$model_revision" "$model_file" <<'PY'
+          import json, sys, urllib.request
+          revision, filename = sys.argv[1:]
+          url = "https://huggingface.co/api/models/Qwen/Qwen3-1.7B-GGUF/revision/" + revision
+          with urllib.request.urlopen(url, timeout=20) as response:
+              model = json.load(response)
+          if model.get("sha") != revision or not any(item.get("rfilename") == filename for item in model.get("siblings", [])):
+              raise SystemExit("pinned official Qwen GGUF revision or file was not found")
+          PY
+          curl --location --fail --retry 3 --retry-all-errors --silent --show-error \
+            "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/$model_revision/$model_file" \
+            --output "$RUNNER_TEMP/$model_file"
+          model_hash=$(sha256sum "$RUNNER_TEMP/$model_file" | cut -d' ' -f1)
+          echo "MODEL_REVISION=$model_revision" >> "$GITHUB_ENV"
+          echo "MODEL_HASH=$model_hash" >> "$GITHUB_ENV"
+          echo "MODEL_DIGEST=sha256:$model_hash" >> "$GITHUB_ENV"
+      - name: Start llama.cpp and wait for server readiness
+        run: |
+          python3 scripts/local-model-lab/run.py stage llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 "$RUNNER_TEMP/model-evidence" server_readiness
+          "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" --host 127.0.0.1 --port 8080 --model "$RUNNER_TEMP/Qwen3-1.7B-Q8_0.gguf" --alias Qwen/Qwen3-1.7B-GGUF:Q8_0 --ctx-size 2048 --n-gpu-layers 0 > "$RUNNER_TEMP/llama.log" 2>&1 &
           echo "RUNTIME_PID=$!" >> "$GITHUB_ENV"
           ready=false
           for i in $(seq 1 600); do
-            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then ready=true; break; fi
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 http://127.0.0.1:8080/health || true)
+            if [ "$status" = 200 ]; then ready=true; break; fi
             sleep 1
           done
-          test "$ready" = true
-          model_path=$(find "$HOME/.cache/huggingface/hub" -type f -name '*.gguf' -print -quit)
-          test -n "$model_path"
-          model_hash=$(sha256sum "$model_path" | cut -d' ' -f1)
+          if [ "$ready" != true ]; then echo "llama.cpp did not become ready; last HTTP status was $status" >&2; exit 1; fi
+      - name: Verify loaded model metadata
+        run: |
+          python3 scripts/local-model-lab/run.py stage llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 "$RUNNER_TEMP/model-evidence" model_metadata
           model_quant=$(sed -nE 's/.*file type = ([A-Za-z0-9_]+).*/\1/p' "$RUNNER_TEMP/llama.log" | tail -1)
-          test -n "$model_quant"
-          echo "MODEL_HASH=$model_hash" >> "$GITHUB_ENV"
-          echo "MODEL_DIGEST=sha256:$model_hash" >> "$GITHUB_ENV"
+          if [ -z "$model_quant" ]; then echo "llama.cpp did not report the loaded GGUF file type" >&2; exit 1; fi
           echo "MODEL_QUANT=$model_quant" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen("http://127.0.0.1:8080/v1/models", timeout=10) as response:
+              models = json.load(response).get("data", [])
+          expected = "Qwen/Qwen3-1.7B-GGUF:Q8_0"
+          if not any(item.get("id") == expected for item in models):
+              raise SystemExit("llama.cpp model listing does not match the pinned model alias")
+          PY
       - name: Probe the loaded llama.cpp model
         env:
           MODEL_PROBE: ${{ runner.temp }}/model-probe
@@ -119,8 +151,12 @@ jobs:
           RUNTIME_PID: ${{ env.RUNTIME_PID }}
           MODEL_DIGEST: ${{ env.MODEL_DIGEST }}
           MODEL_HASH: ${{ env.MODEL_HASH }}
+          MODEL_REVISION: ${{ env.MODEL_REVISION }}
           MODEL_QUANT: ${{ env.MODEL_QUANT }}
         run: python3 scripts/local-model-lab/run.py probe llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 http://127.0.0.1:8080/v1 "$RUNNER_TEMP/model-evidence"
+      - name: Capture llama.cpp evidence and bounded server log
+        if: always()
+        run: python3 scripts/local-model-lab/run.py finalize llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 "$RUNNER_TEMP/model-evidence" "$RUNNER_TEMP/llama.log"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

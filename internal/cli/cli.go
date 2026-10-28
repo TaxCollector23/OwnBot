@@ -436,16 +436,18 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	} else if len(installed) == 1 {
 		config.Model.Model, config.Model.Provider, config.Model.BaseURL = installed[0].ID, installed[0].Provider, installed[0].BaseURL
 	} else {
-		if *yes {
-			return errors.New("more than one installed model is available; use --model to choose one")
-		}
 		_, _ = fmt.Fprintln(stdout, "Choose an installed model by number:")
 		for i, candidate := range installed {
 			_, _ = fmt.Fprintf(stdout, "  %d) %s — %s (%s)\n", i+1, candidate.ID, candidate.Runtime, candidate.Provider)
 		}
-		choice, askErr := ask(input, stdout, "Model number", "")
-		if askErr != nil {
-			return errors.New("choose an installed model with --model or complete setup interactively")
+		choice := "1"
+		if *yes {
+			_, _ = fmt.Fprintf(stdout, "Using first detected installed model for --yes: %s\n", installed[0].ID)
+		} else {
+			choice, err = ask(input, stdout, "Model number", "1")
+			if err != nil {
+				return errors.New("choose an installed model with --model or complete setup interactively")
+			}
 		}
 		index, parseErr := strconv.Atoi(choice)
 		if parseErr != nil || index < 1 || index > len(installed) {
@@ -521,7 +523,7 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}, &agent); err != nil {
 		return fmt.Errorf("model %q was saved, but tool-free agent creation failed: %w", model.Name, err)
 	}
-	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n%s", model.Name, agent.Name, setupNotice)
+	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n%sNext: ownbot\n", model.Name, agent.Name, setupNotice)
 	return nil
 }
 

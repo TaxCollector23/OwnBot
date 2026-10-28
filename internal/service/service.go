@@ -17,6 +17,10 @@ import (
 const label = "com.ownbot.daemon"
 const unitName = "ownbot.service"
 
+// ErrUserManagerUnavailable marks a missing Linux user service manager. It is
+// distinct from a manager that exists but denied access or failed another check.
+var ErrUserManagerUnavailable = errors.New("current user's systemd manager is unavailable")
+
 type Spec struct {
 	Executable string
 	Args       []string
@@ -111,9 +115,28 @@ func Preflight(s Spec) error {
 		return nil
 	}
 	if err := s.run("systemctl", "--user", "show-environment"); err != nil {
-		return fmt.Errorf("current user's systemd manager is unavailable: %w", err)
+		if !errors.Is(err, os.ErrPermission) && (errors.Is(err, exec.ErrNotFound) || hasNoSystemdUserBus(err)) {
+			return fmt.Errorf("%w: %v", ErrUserManagerUnavailable, err)
+		}
+		return fmt.Errorf("check current user's systemd manager: %w", err)
 	}
 	return nil
+}
+
+func hasNoSystemdUserBus(err error) bool {
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"failed to connect to bus: no medium found",
+		"failed to connect to bus: no such file or directory",
+		"could not connect to bus: no medium found",
+		"could not connect to bus: no such file or directory",
+		"system has not been booted with systemd as init system",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func Install(s Spec) error {
