@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 )
 
+// Reasoning-enabled local models can exhaust a 96-token cap before returning
+// a structured response; the probe checks and score remain unchanged.
+const probeMaxTokens = 512
+
 // ProbeResult records observed behaviors only; an error or omitted behavior scores zero.
 type ProbeResult struct {
 	Score            int  `json:"score"`
@@ -20,7 +24,8 @@ type ProbeResult struct {
 func Probe(ctx context.Context, c Client, model string, threshold int) (ProbeResult, error) {
 	p := ProbeResult{Restricted: true}
 	call := func(prompt string, tools []Tool, choice string, format json.RawMessage) (Response, error) {
-		return c.Chat(ctx, Request{Model: model, Messages: []Message{{Role: "user", Content: prompt}}, Tools: tools, ToolChoice: choice, ResponseFormat: format, MaxTokens: 96})
+		temperature := 0.0
+		return c.Chat(ctx, Request{Model: model, Messages: []Message{{Role: "user", Content: prompt}}, Tools: tools, ToolChoice: choice, ResponseFormat: format, Temperature: &temperature, MaxTokens: probeMaxTokens})
 	}
 	fmtSchema := json.RawMessage(`{"type":"json_object"}`)
 	r, e := call(`Return only JSON: {"ok":true}`, nil, "", fmtSchema)

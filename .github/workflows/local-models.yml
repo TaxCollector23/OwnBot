@@ -1,0 +1,129 @@
+name: Local model capability lab
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/local-models.yml'
+      - 'scripts/local-model-lab/**'
+      - 'internal/models/**'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Initialize evidence
+        run: python3 scripts/local-model-lab/run.py init ollama qwen3:1.7b "$RUNNER_TEMP/model-evidence"
+      - name: Build production probe harness
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o "$RUNNER_TEMP/model-probe" ./scripts/local-model-lab
+      - name: Install Ollama and load the pinned model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          echo "RUNTIME_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/version >/dev/null && break || sleep 1; done
+          curl -fsS http://127.0.0.1:11434/api/version >/dev/null
+          ollama pull qwen3:1.7b
+          echo "RUNTIME_VERSION=$(ollama --version | sed 's/.*version is //')" >> "$GITHUB_ENV"
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, pathlib, urllib.request
+          base = "http://127.0.0.1:11434"
+          def post(path, payload):
+              request = urllib.request.Request(base + path, json.dumps(payload).encode(), {"Content-Type": "application/json"})
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  return json.load(response)
+          tags = json.load(urllib.request.urlopen(base + "/api/tags", timeout=10))
+          model = next(item for item in tags.get("models", []) if item.get("name") == "qwen3:1.7b")
+          manifest_path = pathlib.Path.home()/".ollama/models/manifests/registry.ollama.ai/library/qwen3/1.7b"
+          manifest = json.loads(manifest_path.read_text())
+          layer = next(item for item in manifest["layers"] if item["mediaType"].endswith(".model"))
+          details = post("/api/show", {"model": "qwen3:1.7b"}).get("details", {})
+          print("MODEL_DIGEST=" + model.get("digest", "unavailable"))
+          print("MODEL_HASH=" + layer.get("digest", "unavailable"))
+          print("MODEL_QUANT=" + details.get("quantization_level", "unavailable"))
+          PY
+      - name: Probe the loaded Ollama model
+        env:
+          MODEL_PROBE: ${{ runner.temp }}/model-probe
+          RUNTIME_VERSION: ${{ env.RUNTIME_VERSION }}
+          RUNTIME_PID: ${{ env.RUNTIME_PID }}
+          MODEL_DIGEST: ${{ env.MODEL_DIGEST }}
+          MODEL_HASH: ${{ env.MODEL_HASH }}
+          MODEL_QUANT: ${{ env.MODEL_QUANT }}
+        run: python3 scripts/local-model-lab/run.py probe ollama qwen3:1.7b http://127.0.0.1:11434/v1 "$RUNNER_TEMP/model-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ollama-model-evidence
+          path: ${{ runner.temp }}/model-evidence/ollama.json
+          if-no-files-found: error
+
+  llama-cpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Initialize evidence
+        run: python3 scripts/local-model-lab/run.py init llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 "$RUNNER_TEMP/model-evidence"
+      - name: Build production probe harness
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o "$RUNNER_TEMP/model-probe" ./scripts/local-model-lab
+      - name: Build llama.cpp CPU server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -DGGML_NATIVE=OFF -DGGML_CURL=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+          cmake --build "$RUNNER_TEMP/llama.cpp/build" --config Release -j2 --target llama-server
+          echo "RUNTIME_VERSION=$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Start llama.cpp and load the pinned model
+        run: |
+          "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" --host 127.0.0.1 --port 8080 -hf Qwen/Qwen3-1.7B-GGUF:Q8_0 --ctx-size 2048 --n-gpu-layers 0 > "$RUNNER_TEMP/llama.log" 2>&1 &
+          echo "RUNTIME_PID=$!" >> "$GITHUB_ENV"
+          ready=false
+          for i in $(seq 1 600); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          model_path=$(find "$HOME/.cache/huggingface/hub" -type f -name '*.gguf' -print -quit)
+          test -n "$model_path"
+          model_hash=$(sha256sum "$model_path" | cut -d' ' -f1)
+          model_quant=$(sed -nE 's/.*file type = ([A-Za-z0-9_]+).*/\1/p' "$RUNNER_TEMP/llama.log" | tail -1)
+          test -n "$model_quant"
+          echo "MODEL_HASH=$model_hash" >> "$GITHUB_ENV"
+          echo "MODEL_DIGEST=sha256:$model_hash" >> "$GITHUB_ENV"
+          echo "MODEL_QUANT=$model_quant" >> "$GITHUB_ENV"
+      - name: Probe the loaded llama.cpp model
+        env:
+          MODEL_PROBE: ${{ runner.temp }}/model-probe
+          RUNTIME_VERSION: ${{ env.RUNTIME_VERSION }}
+          RUNTIME_PID: ${{ env.RUNTIME_PID }}
+          MODEL_DIGEST: ${{ env.MODEL_DIGEST }}
+          MODEL_HASH: ${{ env.MODEL_HASH }}
+          MODEL_QUANT: ${{ env.MODEL_QUANT }}
+        run: python3 scripts/local-model-lab/run.py probe llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 http://127.0.0.1:8080/v1 "$RUNNER_TEMP/model-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: llama-cpp-model-evidence
+          path: ${{ runner.temp }}/model-evidence/llama-cpp.json
+          if-no-files-found: error
