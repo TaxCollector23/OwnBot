@@ -347,6 +347,112 @@ func TestMCPGoogleOAuthRemainsDeferredWithoutClientSetup(t *testing.T) {
 	}
 }
 
+func TestMCPDisconnectDuringTokenExchangeCannotRestoreOAuth(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var expiresIn int64 = 3600
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mcp":
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="http://`+r.Host+`/.well-known/oauth-protected-resource"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/.well-known/oauth-protected-resource":
+			_ = json.NewEncoder(w).Encode(mcp.ProtectedResourceMetadata{Resource: "http://" + r.Host + "/mcp", AuthorizationServers: []string{"http://" + r.Host}})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(mcp.AuthorizationServerMetadata{
+				Issuer: "http://" + r.Host, AuthorizationEndpoint: "http://" + r.Host + "/authorize",
+				TokenEndpoint: "http://" + r.Host + "/token", RegistrationEndpoint: "http://" + r.Host + "/register",
+				CodeChallengeMethodsSupported: []string{"S256"}, ResponseTypesSupported: []string{"code"},
+				TokenEndpointAuthMethodsSupported: []string{"none"},
+			})
+		case "/register":
+			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "fixture-client"})
+		case "/token":
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+			<-release
+			_ = json.NewEncoder(w).Encode(mcp.OAuthTokenResponse{AccessToken: "late-access-secret", TokenType: "Bearer", RefreshToken: "late-refresh-secret", ExpiresIn: &expiresIn})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer provider.Close()
+
+	s, token := testApp(t)
+	s.oauthHTTP = mcp.OAuthHTTPClient{HTTPClient: provider.Client(), AllowLoopbackHTTP: true}
+	h := s.Handler()
+	w := request(t, h, "POST", "/api/mcp/servers", `{"name":"Fixture MCP","transport":"streamable_http","endpoint":"`+provider.URL+`/mcp","allowed_tools":[],"read_tools":[],"write_tools":[]}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create MCP config: %d %s", w.Code, w.Body.String())
+	}
+	var config MCPServerConfig
+	if err := json.Unmarshal(w.Body.Bytes(), &config); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/mcp/servers/" + config.ID
+	w = request(t, h, "POST", path+"/oauth/start", `{}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("start OAuth: %d %s", w.Code, w.Body.String())
+	}
+	s.oauthMu.Lock()
+	var flow *pendingMCPOAuth
+	for _, candidate := range s.oauthFlows {
+		flow = candidate
+		break
+	}
+	s.oauthMu.Unlock()
+	if flow == nil {
+		t.Fatal("OAuth callback flow was not registered")
+	}
+
+	callbackDone := make(chan int, 1)
+	go func() {
+		response, err := http.Get(flow.redirect + "?" + url.Values{"state": {flow.state}, "code": {"fixture-code"}}.Encode())
+		if err != nil {
+			callbackDone <- 0
+			return
+		}
+		_ = response.Body.Close()
+		callbackDone <- response.StatusCode
+	}()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		close(release)
+		t.Fatal("callback did not reach the held token exchange")
+	}
+
+	w = request(t, h, "POST", path+"/disconnect", `{}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if w.Code != http.StatusOK {
+		close(release)
+		t.Fatalf("disconnect during exchange: %d %s", w.Code, w.Body.String())
+	}
+	close(release)
+	select {
+	case status := <-callbackDone:
+		if status != http.StatusGone {
+			t.Fatalf("late callback should be rejected after disconnect, got %d", status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("callback did not finish after token endpoint released")
+	}
+
+	var saved, grants int
+	if err := s.db.QueryRow(`SELECT count(*) FROM mcp_oauth_tokens WHERE server_id=?`, config.ID).Scan(&saved); err != nil || saved != 0 {
+		t.Fatalf("disconnect race persisted OAuth token: rows=%d err=%v", saved, err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM agent_settings`).Scan(&grants); err != nil || grants != 0 {
+		t.Fatalf("OAuth disconnect race created agent grants: rows=%d err=%v", grants, err)
+	}
+	w = request(t, h, "GET", "/api/mcp/servers", "", "127.0.0.1:8765", "", token)
+	var listed []MCPServerConfig
+	if json.Unmarshal(w.Body.Bytes(), &listed) != nil || len(listed) != 1 || listed[0].OAuthAuthorized || listed[0].Enabled {
+		t.Fatalf("disconnect race left OAuth or runtime availability: %s", w.Body.String())
+	}
+}
+
 func TestMCPOAuthStartRejectsLANHostsAndForeignOrigins(t *testing.T) {
 	s, token := testApp(t)
 	w := request(t, s.Handler(), "POST", "/api/mcp/servers", `{"name":"Hosted MCP","transport":"streamable_http","endpoint":"https://mcp.example/mcp","allowed_tools":["read"],"read_tools":["read"],"write_tools":[]}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)

@@ -51,6 +51,7 @@ type Server struct {
 	oauthMu          sync.Mutex
 	oauthTokenMu     sync.Mutex
 	oauthFlows       map[string]*pendingMCPOAuth
+	oauthExchanges   map[string]*pendingMCPOAuth
 	oauthHTTP        mcp.OAuthHTTPClient
 	automationCtx    context.Context
 	automationCancel context.CancelFunc
@@ -71,7 +72,7 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), oauthFlows: make(map[string]*pendingMCPOAuth), automationClock: time.Now}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), oauthFlows: make(map[string]*pendingMCPOAuth), oauthExchanges: make(map[string]*pendingMCPOAuth), automationClock: time.Now}
 	if err = s.migrate(); err != nil {
 		db.Close()
 		return nil, err

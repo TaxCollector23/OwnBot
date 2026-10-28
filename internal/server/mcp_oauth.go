@@ -141,7 +141,16 @@ func (s *Server) startMCPOAuth(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(s.oauthFlows) >= maxOAuthFlows {
+	for _, existing := range s.oauthExchanges {
+		if existing.serverID == c.ID {
+			s.oauthMu.Unlock()
+			s.mcpMu.Unlock()
+			_ = listener.Close()
+			errJSON(w, 409, "OAuth sign-in is already finishing for this MCP server")
+			return
+		}
+	}
+	if len(s.oauthFlows)+len(s.oauthExchanges) >= maxOAuthFlows {
 		s.oauthMu.Unlock()
 		s.mcpMu.Unlock()
 		_ = listener.Close()
@@ -241,11 +250,13 @@ func (s *Server) handleMCPOAuthCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	delete(s.oauthFlows, flow.state) // consume state before any remote token exchange
+	s.oauthExchanges[flow.state] = flow
 	if flow.timer != nil {
 		flow.timer.Stop()
 	}
 	s.oauthMu.Unlock()
 	defer func() { go flow.server.Close() }()
+	defer s.finishOAuthExchange(flow)
 	if query.Get("error") != "" {
 		s.event("mcp.oauth.denied", "local-user", map[string]any{"server_id": flow.serverID})
 		http.Error(w, "Provider sign-in was denied. Start again from OwnBot if you want to retry.", http.StatusForbidden)
@@ -263,11 +274,24 @@ func (s *Server) handleMCPOAuthCallback(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "Provider token exchange failed. Start again from OwnBot.", http.StatusBadGateway)
 		return
 	}
-	if err = s.saveOAuthToken(storedMCPOAuth{
+	grant := storedMCPOAuth{
 		ServerID: flow.serverID, Owner: flow.owner, ClientID: flow.clientID,
 		AccessToken: token.AccessToken, Refresh: token.RefreshToken,
 		ExpiresAt: tokenExpiry(token.ExpiresIn), Discovery: flow.discovery, Scope: token.Scope,
-	}); err != nil {
+	}
+	// Serialize persistence with clear/disconnect. If either operation removed
+	// this exchange while the provider request was in flight, discard its result.
+	s.oauthMu.Lock()
+	if s.oauthExchanges[flow.state] != flow {
+		s.oauthMu.Unlock()
+		http.Error(w, "OAuth sign-in was cleared. Start again from OwnBot.", http.StatusGone)
+		return
+	}
+	s.oauthTokenMu.Lock()
+	err = s.saveOAuthTokenLocked(grant)
+	s.oauthTokenMu.Unlock()
+	s.oauthMu.Unlock()
+	if err != nil {
 		http.Error(w, "Could not save local authorization. Start again from OwnBot.", http.StatusInternalServerError)
 		return
 	}
@@ -423,6 +447,19 @@ func (s *Server) removePendingOAuth(serverID string) {
 			go flow.server.Close()
 		}
 	}
+	for state, flow := range s.oauthExchanges {
+		if flow.serverID == serverID {
+			delete(s.oauthExchanges, state)
+		}
+	}
+}
+
+func (s *Server) finishOAuthExchange(flow *pendingMCPOAuth) {
+	s.oauthMu.Lock()
+	if s.oauthExchanges[flow.state] == flow {
+		delete(s.oauthExchanges, flow.state)
+	}
+	s.oauthMu.Unlock()
 }
 
 func (s *Server) closePendingOAuth() {
@@ -434,6 +471,9 @@ func (s *Server) closePendingOAuth() {
 			flow.timer.Stop()
 		}
 		delete(s.oauthFlows, state)
+	}
+	for state := range s.oauthExchanges {
+		delete(s.oauthExchanges, state)
 	}
 	s.oauthMu.Unlock()
 	for _, flow := range flows {
