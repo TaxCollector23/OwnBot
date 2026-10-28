@@ -1,6 +1,14 @@
 name: Isolated LAN lab
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/lan-lab.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/lan-lab/**'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:
   push:
     paths:

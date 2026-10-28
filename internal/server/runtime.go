@@ -22,6 +22,64 @@ func (s *Server) migrateRuntime() error {
  CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append only'); END;
  CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append only'); END;
  `)
+	if err != nil {
+		return err
+	}
+	// Add durable scheduler fields without discarding or interpreting legacy
+	// free-form schedule and pipeline metadata.
+	for _, migration := range []struct{ table, column, declaration string }{
+		{"automations", "agent_id", "TEXT NOT NULL DEFAULT ''"},
+		{"automations", "input", "TEXT NOT NULL DEFAULT ''"},
+		{"automations", "interval_minutes", "INTEGER NOT NULL DEFAULT 0"},
+		{"automations", "time_utc", "TEXT NOT NULL DEFAULT ''"},
+		{"automations", "next_run_at", "TEXT NOT NULL DEFAULT ''"},
+		{"automations", "validation_error", "TEXT NOT NULL DEFAULT ''"},
+		{"jobs", "run_id", "TEXT NOT NULL DEFAULT ''"},
+		{"jobs", "step_key", "TEXT NOT NULL DEFAULT ''"},
+		{"jobs", "payload_json", "TEXT NOT NULL DEFAULT ''"},
+		{"jobs", "lease_until", "TEXT NOT NULL DEFAULT ''"},
+		{"jobs", "lease_owner", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := addColumnIfMissing(s.db, migration.table, migration.column, migration.declaration); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS jobs_step_key_unique ON jobs(step_key) WHERE step_key <> ''`)
+	if err == nil {
+		_, err = s.db.Exec(`UPDATE automations SET enabled=0,validation_error=CASE WHEN trigger_type NOT IN ('manual','interval','daily_utc') THEN 'Legacy trigger is not executable; recreate as manual, interval, or daily_utc.' WHEN agent_id='' THEN 'No agent is pinned; edit or recreate this automation with an agent and input.' ELSE validation_error END WHERE validation_error='' AND (trigger_type NOT IN ('manual','interval','daily_utc') OR agent_id='')`)
+	}
+	return err
+}
+
+func addColumnIfMissing(db *sql.DB, table, column, declaration string) error {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, kind string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &kind, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == column {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + declaration)
 	return err
 }
 func eventTx(tx *sql.Tx, kind, actor, run, agent string, details any) error {

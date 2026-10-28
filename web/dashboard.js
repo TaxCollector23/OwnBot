@@ -25,6 +25,7 @@
   let mcpTools = [];
   let mcpServers = [];
   let toolsUnavailable = false;
+  let configuredModels = [];
   document.querySelector('#forget-current-device').hidden = !pairedDevice || !token;
 
   const q = (selector, root = document) => root.querySelector(selector);
@@ -139,30 +140,19 @@
 
   const setLoading = (selector, message) => { q(selector).innerHTML = `<div class="empty-inline">${esc(message)}</div>`; };
   const sectionError = (selector, label, error) => { q(selector).innerHTML = `<div class="empty-inline">${esc(label)} could not be loaded. ${esc(error.message)}</div>`; };
-  const stateTag = (input) => {
+  const stateText = (input) => {
     const status = value(input?.status, input?.state, input?.enabled ? 'enabled' : 'disabled', 'unknown');
-    return `<span class="item-tag">${esc(status)}</span>`;
+    return `<span class="state-text">${esc(status)}</span>`;
   };
   const renderStatus = (data) => {
     const connected = data?.ok === true;
-    q('#status-pill').textContent = connected ? 'Connected' : value(data?.status, 'Unavailable');
-    q('#status-pill').className = `state-pill ${connected ? 'state-ok' : 'state-warn'}`;
-    q('#status-facts').innerHTML = [
-      ['Version', value(data?.version, 'Not reported')],
-      ['Agents', value(data?.agents, 'Not reported')],
-      ['Pending approvals', value(data?.pending_approvals, 'Not reported')],
-      ['Queued jobs', value(data?.queued_jobs, 'Not reported')],
-    ].map(([label, content]) => `<div><span class="fact-label">${esc(label)}</span><span class="fact-value">${esc(content)}</span></div>`).join('');
-    connectionLabel.textContent = connected ? 'Local host responding' : 'Local host status';
+    connectionLabel.textContent = connected ? 'Connected' : 'Unavailable';
     if (data?.api_token_required && !token) showTokenPanel(true);
   };
   const loadStatus = async () => {
     try { renderStatus(await api('/api/status')); }
     catch (error) {
-      q('#status-pill').textContent = 'Unavailable';
-      q('#status-pill').className = 'state-pill state-warn';
-      q('#status-facts').innerHTML = `<div class="empty-inline">The local API did not respond: ${esc(error.message)}</div>`;
-      connectionLabel.textContent = 'Local host not responding';
+      connectionLabel.textContent = 'Unavailable';
     }
   };
   const loadSearch = async () => {
@@ -170,7 +160,6 @@
       const config = await api('/api/search');
       const configured = Boolean(config?.configured && config?.endpoint);
       q('#search-state').textContent = configured ? 'Configured' : 'Not configured';
-      q('#search-state').className = `item-tag ${configured ? 'search-configured' : ''}`;
       q('#search-status').innerHTML = configured
         ? `Endpoint: <code>${esc(config.endpoint)}</code><br>Requests leave this device: ${config.requests_leave_device === true ? 'Yes' : 'Not reported'}. Configuration is already set.`
         : 'No endpoint is configured. Search will remain unavailable until one is saved.';
@@ -200,14 +189,47 @@
     setLoading('#models-list', 'Loading model configurations…');
     try {
       const models = list(await api('/api/models'));
-      if (!models.length) { setLoading('#models-list', 'No model configurations yet. Add an Ollama or LM Studio model on this machine.'); return; }
+      configuredModels = models;
+      if (!models.length) { setLoading('#models-list', 'No local models configured.'); updateComposer([]); return; }
       q('#models-list').innerHTML = models.map((model) => `<article class="model-card" data-model-id="${esc(model.id)}">
-        <div class="model-card-head"><div><div class="model-card-title">${esc(value(model.name, model.model, 'Model'))}</div><div class="model-card-meta">${esc(model.provider === 'lm_studio' ? 'LM Studio' : model.provider === 'ollama' ? 'Ollama' : value(model.provider, 'Provider'))} · ${esc(value(model.model, 'Model identifier unavailable'))}</div></div><span class="item-tag">${model.last_probe ? 'probed' : 'not probed'}</span></div>
+        <div class="model-card-head"><div><div class="model-card-title">${esc(value(model.name, model.model, 'Model'))}</div><div class="model-card-meta">${esc(model.provider === 'lm_studio' ? 'LM Studio' : model.provider === 'ollama' ? 'Ollama' : value(model.provider, 'Provider'))} · ${esc(value(model.model, 'Model identifier unavailable'))}</div></div><span class="state-text">${model.last_probe ? 'Probe complete' : 'Not probed'}</span></div>
         <code class="model-endpoint-value">${esc(model.base_url || 'Endpoint not reported')}</code>
         ${renderProbe(model.last_probe, model.probed_at)}
         <div class="row-actions"><button class="probe-action" type="button" data-model-probe="${esc(model.id)}">Run capability probe</button></div>
       </article>`).join('');
     } catch (error) { sectionError('#models-list', 'Model configurations', error); }
+  };
+  const updateComposer = (agents) => {
+    const enabled = agents.filter((agent) => Boolean(agent.enabled));
+    const select = q('#task-agent');
+    const form = q('#task-form');
+    const input = q('#task-input');
+    const empty = q('#composer-empty');
+    if (!enabled.length || !token || !configuredModels.length) {
+      select.innerHTML = '<option value="">No enabled agents</option>';
+      select.disabled = true;
+      input.disabled = true;
+      q('#start-task-button').disabled = true;
+      form.hidden = true;
+      empty.hidden = !token;
+      const hasModels = configuredModels.length > 0;
+      q('#composer-state').textContent = !token ? 'Connect to your host to begin.' : hasModels ? 'An enabled agent is required.' : 'A local model is required to run a task.';
+      const hasAgents = agents.length > 0;
+      q('#composer-empty p').textContent = hasModels ? hasAgents ? 'Enable an agent in Settings to run a task.' : 'Create an agent to run a task.' : 'Add a local model before creating an agent run.';
+      q('#add-model-empty').textContent = hasModels ? hasAgents ? 'Enable an agent' : 'Create an agent' : 'Add a local model';
+      q('#add-model-empty').dataset.destination = hasModels ? 'agent' : 'model';
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = enabled.map((agent) => `<option value="${esc(agent.id)}">${esc(value(agent.name, agent.id, 'Agent'))}</option>`).join('');
+    select.value = enabled.some((agent) => String(agent.id) === previous) ? previous : String(enabled[0].id);
+    form.dataset.runForm = select.value;
+    select.disabled = false;
+    input.disabled = false;
+    form.hidden = false;
+    empty.hidden = true;
+    q('#start-task-button').disabled = false;
+    q('#composer-state').textContent = configuredModels.length ? 'Runs use the selected agent’s saved configuration.' : 'The selected agent must have a configured model.';
   };
   const metadataList = (items) => Array.isArray(items) && items.length ? items.join(', ') : 'None configured';
   const loadTools = async () => {
@@ -225,7 +247,6 @@
       const servers = list(await api('/api/mcp/servers'));
       mcpServers = servers;
       await loadTools();
-      q('#mcp-count').textContent = `${servers.length} saved`;
       if (!servers.length) {
         setLoading('#mcp-list', 'No MCP server configurations are saved. Add an HTTP endpoint to connect and discover tools.');
         return;
@@ -249,7 +270,7 @@
               : '<div class="item-meta">Connected; no tools were reported for this server.</div>')
           : '<div class="item-meta">Connect explicitly to discover tools. No calls happen automatically.</div>';
         return `<article class="mcp-card">
-          <div class="mcp-card-head"><div><div class="model-card-title">${esc(value(server.name, 'Unnamed server'))}</div><div class="model-card-meta">${esc(transport)} · ${esc(address || 'No command or endpoint saved')}</div></div><span class="item-tag">${esc(configState)}</span></div>
+          <div class="mcp-card-head"><div><div class="model-card-title">${esc(value(server.name, 'Unnamed server'))}</div><div class="model-card-meta">${esc(transport)} · ${esc(address || 'No command or endpoint saved')}</div></div><span class="state-text">${esc(configState)}</span></div>
           <div class="mcp-status-row"><span>Connection</span><strong>${esc(connection)}</strong><span>Tools</span><strong>${connected ? actualTools.length : 'Not discovered'}</strong></div>
           <div class="mcp-inactive-tools">Allowed tool names: ${esc(metadataList(tools))}</div>
           <div class="mcp-inactive-tools">Read: ${esc(metadataList(server.read_tools))} · Write: ${esc(metadataList(server.write_tools))} · Timeout: ${esc(value(server.request_timeout_seconds, 'Not reported'))} sec</div>
@@ -258,7 +279,6 @@
         </article>`;
       }).join('');
     } catch (error) {
-      q('#mcp-count').textContent = 'Unavailable';
       sectionError('#mcp-list', 'MCP configuration', error);
     }
   };
@@ -266,6 +286,13 @@
     setLoading('#agents-list', 'Loading agents…');
     try {
       const agents = list(await api('/api/agents'));
+      updateComposer(agents);
+      const automationAgent = q('#automation-agent');
+      const runnableAgents = agents.filter((agent) => Boolean(agent.enabled));
+      automationAgent.innerHTML = runnableAgents.length
+        ? runnableAgents.map((agent) => `<option value="${esc(agent.id)}">${esc(value(agent.name, agent.id, 'Agent'))}</option>`).join('')
+        : '<option value="">Enable an agent in Settings first</option>';
+      automationAgent.disabled = runnableAgents.length === 0;
       if (!agents.length) { setLoading('#agents-list', 'No agents yet. Create one to configure its name and model.'); return; }
       q('#agents-list').innerHTML = agents.map((agent) => {
         const id = esc(agent.id);
@@ -281,7 +308,7 @@
         const serverChoices = mcpServers.filter((server) => server.runtime_available === true || (server.runtime_available === undefined && Boolean(server.enabled)));
         const agentSelectedServers = selectedServers.length ? selectedServers : toolChoices.filter((tool) => configuredTools.includes(tool.name)).map((tool) => String(mcpServers.find((server) => String(server.id) === String(tool.server) || String(server.name) === String(tool.server))?.id || ''));
         return `<article class="item-row" data-agent-id="${id}">
-          <div class="item-top"><div><div class="item-title">${esc(value(agent.name, 'Unnamed agent'))}</div><div class="item-meta">${esc(value(agent.model, 'Model not configured'))} · prompt v${esc(value(agent.prompt_version, '—'))}</div></div>${stateTag(agent)}</div>
+          <div class="item-top"><div><div class="item-title">${esc(value(agent.name, 'Unnamed agent'))}</div><div class="item-meta">${esc(value(agent.model, 'Model not configured'))} · Prompt version ${esc(value(agent.prompt_version, '—'))} · ${enabled ? 'Enabled' : 'Disabled'}</div></div></div>
           <div class="item-description">Tools: ${esc(tools)}<br>Run limits: ${esc(value(agent.max_steps, '—'))} steps · ${esc(value(agent.max_tokens, '—'))} tokens · ${esc(value(agent.timeout_seconds, '—'))} sec<br>Web search: ${agent.web_search ? 'on' : 'off'} · MCP: ${agent.mcp_enabled ? 'on' : 'off'}</div>
           <div class="row-actions"><button type="button" data-prompt-edit="${id}">Edit system prompt</button><button type="button" data-agent-tools-edit="${id}">Configure capabilities</button><button type="button" data-agent-enabled="${id}" data-enabled="${enabled}">${enabled ? 'Disable agent' : 'Enable agent'}</button></div>
           <form class="agent-capability-form inline-form" data-agent-tools-form="${id}" hidden>
@@ -291,8 +318,8 @@
             <fieldset><legend>Tools allowed for this agent</legend>${toolChoices.length ? toolChoices.map((tool) => `<label class="tool-choice"><input type="checkbox" name="tool" value="${esc(tool.name)}" ${configuredTools.includes(tool.name) ? 'checked' : ''}><span><code>${esc(tool.name)}</code> · ${esc(value(tool.risk, 'risk not reported'))}<small>${esc(value(tool.description, 'No description reported'))}</small></span></label>`).join('') : '<div class="item-meta">Connect a server and configure actual tool names in its allowlist to discover tools here.</div>'}</fieldset>
             <div class="form-actions"><button class="button primary small-button" type="submit">Save capabilities</button><button class="text-button cancel-button" type="button">Cancel</button></div>
           </form>
-          ${enabled ? `<form class="run-form inline-form" data-run-form="${id}"><label for="run-input-${id}">Message</label><textarea id="run-input-${id}" name="input" rows="3" maxlength="64000" required placeholder="What should this agent do?"></textarea><div class="form-actions"><button class="button primary small-button" type="submit">Start run</button><span class="item-meta">Requires a saved prompt and a model that passes all capability checks.</span></div></form>` : `<div class="item-meta">Disabled agents cannot run. Enable only after reviewing the prompt and configuration.</div>`}
-          <form class="prompt-form inline-form" data-prompt-form="${id}" hidden><label for="prompt-${id}">System prompt</label><textarea id="prompt-${id}" name="prompt" rows="7" maxlength="20000">${esc(agent.prompt || '')}</textarea><div class="form-actions"><button class="button primary small-button" type="submit">Save prompt</button><button class="text-button cancel-button" type="button">Cancel</button></div></form>
+          ${enabled ? '' : '<div class="item-meta">Disabled agents cannot run. Enable after reviewing the prompt and configuration.</div>'}
+          <form class="prompt-form inline-form" data-prompt-form="${id}" hidden><label for="prompt-${id}">System prompt</label><textarea id="prompt-${id}" name="prompt" rows="7" maxlength="20000">${esc(agent.prompt || '')}</textarea><div class="form-actions"><button class="button primary small-button" type="submit">Save prompt</button><button class="text-button cancel-button" type="button">Cancel</button></div><div class="prompt-history" id="prompt-history-${id}"></div></form>
         </article>`;
       }).join('');
     } catch (error) { sectionError('#agents-list', 'Agents', error); }
@@ -302,28 +329,27 @@
     try {
       const approvals = list(await api('/api/approvals'));
       const pending = approvals.filter((item) => value(item.status, 'pending') === 'pending');
-      q('#approval-count').textContent = `${pending.length} pending`;
+      q('#approvals-panel').hidden = pending.length === 0;
       if (!pending.length) { setLoading('#approvals-list', 'No pending approvals.'); return; }
       q('#approvals-list').innerHTML = pending.map((item) => `<article class="item-row">
-        <div class="item-top"><div><div class="item-title">${esc(value(item.tool, 'Requested action'))}</div><div class="item-meta">${esc(value(item.agent_name, item.agent_id, 'Agent unavailable'))} · ${esc(date(item.requested_at))}</div></div>${stateTag(item)}</div>
+        <div class="item-top"><div><div class="item-title">${esc(value(item.tool, 'Requested action'))}</div><div class="item-meta">${esc(value(item.agent_name, item.agent_id, 'Agent unavailable'))} · ${esc(date(item.requested_at))}</div></div>${stateText(item)}</div>
         ${item.reason ? `<div class="item-description">${esc(item.reason)}</div>` : ''}
         ${item.args !== undefined ? `<details class="detail-box"><summary>View requested arguments</summary><pre>${esc(pretty(item.args))}</pre></details>` : ''}
         <div class="row-actions"><button class="approve-action" type="button" data-decision="approve" data-id="${esc(item.id)}" data-run-id="${esc(item.run_id || '')}">${item.run_id ? 'Approve and resume' : 'Record approval'}</button><button type="button" data-decision="deny" data-id="${esc(item.id)}">Deny</button></div>
         <div class="item-meta decision-note">${item.run_id ? 'Approval is recorded first, then the paused run resumes.' : 'This approval has no linked run, so the decision is recorded without execution.'}</div>
       </article>`).join('');
-    } catch (error) { q('#approval-count').textContent = 'Unavailable'; sectionError('#approvals-list', 'Approvals', error); }
+    } catch (error) { q('#approvals-panel').hidden = false; sectionError('#approvals-list', 'Approvals', error); }
   };
   const loadRuns = async () => {
     setLoading('#runs-list', 'Loading runs…');
     try {
       const runs = list(await api('/api/runs'));
-      q('#runs-count').textContent = `${runs.length} recent`;
-      if (!runs.length) { setLoading('#runs-list', 'No runs recorded yet. Enable a configured agent to start one.'); return; }
+      if (!runs.length) { setLoading('#runs-list', 'No runs yet.'); return; }
       q('#runs-list').innerHTML = runs.map((run) => `<article class="item-row run-row">
-        <div class="item-top"><div><div class="item-title">${esc(value(run.agent_name, run.agent_id, 'Agent'))}</div><div class="item-meta">${esc(run.id)} · prompt v${esc(value(run.prompt_version, '—'))} · ${esc(date(run.updated_at || run.created_at))}</div></div>${stateTag(run)}</div>
-        <div class="row-actions"><button type="button" data-run-detail="${esc(run.id)}">View run details</button></div>
+        <div class="item-top"><div><div class="item-title">${esc(value(run.agent_name, run.agent_id, 'Agent'))}</div><div class="item-meta">${esc(value(run.status, 'Status unavailable'))} · ${esc(date(run.updated_at || run.created_at))}</div></div></div>
+        <div class="row-actions"><button type="button" data-run-detail="${esc(run.id)}">View result</button></div>
       </article>`).join('');
-    } catch (error) { q('#runs-count').textContent = 'Unavailable'; sectionError('#runs-list', 'Runs', error); }
+    } catch (error) { sectionError('#runs-list', 'Runs', error); }
   };
   const showRunDetails = async (id) => {
     const target = q('#run-detail');
@@ -345,8 +371,11 @@
       const automations = list(await api('/api/automations'));
       if (!automations.length) { setLoading('#automations-list', 'No automations configured.'); return; }
       q('#automations-list').innerHTML = automations.map((item) => `<article class="item-row">
-        <div class="item-top"><div><div class="item-title">${esc(value(item.name, 'Unnamed automation'))}</div><div class="item-meta">${esc(value(item.trigger_type, 'Trigger not configured'))}${item.schedule ? ` · ${esc(item.schedule)}` : ''}</div></div>${stateTag(item)}</div>
-        ${item.pipeline ? `<details class="detail-box"><summary>View pipeline</summary><pre>${esc(pretty(item.pipeline))}</pre></details>` : ''}
+        <div class="item-top"><div><div class="item-title">${esc(value(item.name, 'Unnamed automation'))}</div><div class="item-meta">${esc(value(item.schedule, item.trigger_type, 'Schedule unavailable'))} · ${item.enabled ? 'Enabled' : 'Disabled'}</div></div></div>
+        ${item.next_run_at ? `<p class="automation-next-run">Next run: ${esc(date(item.next_run_at))}</p>` : ''}
+        ${item.validation_error ? `<p class="automation-error">${esc(item.validation_error)}</p>` : ''}
+        ${item.trigger_type === 'manual' && item.enabled ? `<div class="row-actions"><button class="button outline" type="button" data-automation-run="${esc(item.id)}">Run now</button></div>` : ''}
+        ${!item.enabled ? '<p class="automation-next-run">This saved automation is disabled and cannot be queued.</p>' : ''}
       </article>`).join('');
     } catch (error) { sectionError('#automations-list', 'Automations', error); }
   };
@@ -378,8 +407,6 @@
     await loadStatus();
     if (!token) {
       ['#models-list','#mcp-list','#agents-list','#approvals-list','#runs-list','#automations-list','#audit-list'].forEach((selector) => setLoading(selector, 'Enter the local API token to load host data.'));
-      q('#approval-count').textContent = 'Locked';
-      q('#mcp-count').textContent = 'Locked';
       q('#search-state').textContent = 'Locked';
       q('#search-status').textContent = 'Enter the local API token to read search configuration.';
       q('#search-form').hidden = true;
@@ -396,7 +423,7 @@
       const devices = list(await api('/api/devices'));
       if (!devices.length) { setLoading('#devices-list', 'No devices have been paired.'); return; }
       q('#devices-list').innerHTML = devices.map((device) => `<article class="item-row device-row">
-        <div class="item-top"><div><div class="item-title">${esc(value(device.name, 'Unnamed device'))}</div><div class="item-meta">Paired ${esc(date(device.created_at))}${device.revoked_at ? ` · Revoked ${esc(date(device.revoked_at))}` : ''}</div></div><span class="item-tag">${device.revoked_at ? 'Revoked' : 'Active'}</span></div>
+        <div class="item-top"><div><div class="item-title">${esc(value(device.name, 'Unnamed device'))}</div><div class="item-meta">Paired ${esc(date(device.created_at))}${device.revoked_at ? ` · Revoked ${esc(date(device.revoked_at))}` : ''}</div></div><span class="state-text">${device.revoked_at ? 'Revoked' : 'Active'}</span></div>
         ${device.revoked_at ? '' : `<div class="row-actions"><button type="button" data-revoke-device="${esc(device.id)}">Revoke access</button></div>`}
       </article>`).join('');
     } catch (error) { sectionError('#devices-list', 'Paired devices', error); }
@@ -408,12 +435,12 @@
       const access = await api('/api/access');
       q('#access-state').textContent = access?.enabled ? 'Enabled' : 'Disabled';
       q('#access-status').innerHTML = access?.enabled
-        ? `<div>Available on your local network:</div>${list(access.urls).map((url) => `<code class="access-url">${esc(url)}</code>`).join('') || '<span>Address not reported.</span>'}${access.certificate_fingerprint ? `<div class="item-meta">Certificate fingerprint: <code>${esc(access.certificate_fingerprint)}</code></div>` : ''}`
+        ? `<div>Available on your local network:</div>${list(access.urls).map((url) => `<code class="access-url">${esc(url)}</code>`).join('') || '<span>Address not reported.</span>'}${access.certificate_fingerprint ? `<details class="fingerprint-details"><summary>Device certificate details</summary><code>${esc(access.certificate_fingerprint)}</code></details>` : ''}`
         : 'LAN access is off. Start the daemon with the command below to pair a device.';
       q('#create-pairing-button').disabled = !access?.enabled;
       await loadDevices();
     } catch (error) {
-      q('#access-state').textContent = 'Unavailable';
+      q('#access-state').textContent = `Unavailable: ${error.message}`;
       q('#access-status').textContent = `LAN access could not be loaded: ${error.message}`;
       q('#create-pairing-button').disabled = true;
       sectionError('#devices-list', 'Paired devices', error);
@@ -458,7 +485,10 @@
       if (!pairing?.pairing_url) throw new Error('The host did not return a pairing link.');
       q('#pairing-link').value = pairing.pairing_url;
       q('#pairing-link-panel').hidden = false;
-      q('#pairing-link-meta').textContent = `Expires ${date(pairing.expires_at)}${pairing.certificate_fingerprint ? ` · Certificate fingerprint: ${pairing.certificate_fingerprint}` : ''}`;
+      q('#pairing-link-meta').textContent = `Expires ${date(pairing.expires_at)}`;
+      q('#pairing-fingerprint-meta').innerHTML = pairing.certificate_fingerprint
+        ? `<details class="fingerprint-details"><summary>Device certificate details</summary><code>${esc(pairing.certificate_fingerprint)}</code></details>`
+        : '';
       showMessage('Pairing link created. Anyone with this link can pair one device before it expires.', false);
     } catch (error) { showMessage(`Could not create pairing link: ${error.message}`); }
     finally { button.disabled = false; }
@@ -501,6 +531,28 @@
     } catch (error) { showMessage(error.message); }
   });
   q('#refresh-button').addEventListener('click', loadAll);
+  q('#task-agent').addEventListener('change', (event) => { q('#task-form').dataset.runForm = event.target.value; });
+  q('#history-toggle').addEventListener('click', () => {
+    const rail = q('#history-rail');
+    const open = rail.classList.toggle('history-open');
+    q('#history-toggle').setAttribute('aria-expanded', String(open));
+  });
+  q('#settings-toggle').addEventListener('click', () => {
+    const settings = q('#settings-drawer');
+    settings.open = !settings.open;
+    q('#settings-toggle').setAttribute('aria-expanded', String(settings.open));
+    if (settings.open) settings.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  q('#settings-drawer').addEventListener('toggle', (event) => q('#settings-toggle').setAttribute('aria-expanded', String(event.currentTarget.open)));
+  q('#add-model-empty').addEventListener('click', (event) => {
+    q('#settings-drawer').open = true;
+    q('#settings-toggle').setAttribute('aria-expanded', 'true');
+    if (event.currentTarget.dataset.destination === 'agent') {
+      if (q('#agents-list').querySelector('[data-agent-id]')) q('#agents-list').scrollIntoView({behavior:'smooth', block:'start'});
+      else q('#new-agent-button').click();
+    } else q('#new-model-button').click();
+    q('#settings-drawer').scrollIntoView({behavior:'smooth', block:'start'});
+  });
   q('#new-model-button').addEventListener('click', () => { q('#model-form').hidden = false; q('#model-id').focus(); });
   q('#model-provider').addEventListener('change', (event) => {
     const baseURL = event.target.value === 'lm_studio' ? 'http://127.0.0.1:1234/v1' : 'http://127.0.0.1:11434/v1';
@@ -593,11 +645,28 @@
   q('#automation-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const schedule = String(form.get('schedule') || '').trim();
-    const payload = {name:String(form.get('name')).trim(), enabled:false, trigger_type:schedule ? 'cron' : 'manual', schedule, pipeline:[]};
-    try { await api('/api/automations', {method:'POST', body:JSON.stringify(payload)}); event.currentTarget.reset(); event.currentTarget.hidden = true; showMessage('Automation created disabled. No job has been run.', false); await Promise.all([loadAutomations(), loadStatus()]); }
+    const triggerType = String(form.get('trigger_type'));
+    const payload = {
+      name:String(form.get('name')).trim(),
+      enabled:true,
+      agent_id:String(form.get('agent_id')),
+      input:String(form.get('input')).trim(),
+      trigger_type:triggerType,
+      ...(triggerType === 'interval' ? {interval_minutes:Number(form.get('interval_minutes'))} : {}),
+      ...(triggerType === 'daily_utc' ? {time_utc:String(form.get('time_utc'))} : {}),
+    };
+    try { await api('/api/automations', {method:'POST', body:JSON.stringify(payload)}); event.currentTarget.reset(); event.currentTarget.hidden = true; updateAutomationScheduleFields(); showMessage('Automation saved and enabled.', false); await Promise.all([loadAutomations(), loadStatus()]); }
     catch (error) { showMessage(`Could not create automation: ${error.message}`); }
   });
+  const updateAutomationScheduleFields = () => {
+    const type = q('#automation-trigger').value;
+    q('#automation-interval-field').hidden = type !== 'interval';
+    q('#automation-time-field').hidden = type !== 'daily_utc';
+    q('#automation-interval').required = type === 'interval';
+    q('#automation-time').required = type === 'daily_utc';
+  };
+  q('#automation-trigger').addEventListener('change', updateAutomationScheduleFields);
+  updateAutomationScheduleFields();
   document.addEventListener('click', async (event) => {
     const cancel = event.target.closest('.cancel-button');
     if (cancel && cancel.closest('form')?.matches('.agent-capability-form')) {
@@ -606,6 +675,20 @@
     }
     if (cancel && cancel.closest('form')?.matches('#mcp-form')) {
       cancel.closest('form').hidden = true;
+      return;
+    }
+    const automationRun = event.target.closest('[data-automation-run]');
+    if (automationRun) {
+      automationRun.disabled = true;
+      const key = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        const result = await api(`/api/automations/${encodeURIComponent(automationRun.dataset.automationRun)}/jobs`, {method:'POST', body:JSON.stringify({idempotency_key:key})});
+        showMessage(result?.deduplicated ? 'This task was already queued.' : `Task queued${result?.run_after ? ` for ${date(result.run_after)}` : ''}.`, false);
+        await loadAutomations();
+      } catch (error) {
+        showMessage(`Could not queue this task: ${error.message}`);
+        automationRun.disabled = false;
+      }
       return;
     }
     const capabilityButton = event.target.closest('[data-agent-tools-edit]');
@@ -650,7 +733,12 @@
       return;
     }
     const runButton = event.target.closest('[data-run-detail]');
-    if (runButton) { await showRunDetails(runButton.dataset.runDetail); return; }
+    if (runButton) {
+      await showRunDetails(runButton.dataset.runDetail);
+      q('#history-rail').classList.remove('history-open');
+      q('#history-toggle').setAttribute('aria-expanded', 'false');
+      return;
+    }
     if (event.target.closest('[data-run-detail-close]')) { q('#run-detail').hidden = true; return; }
     const promptButton = event.target.closest('[data-prompt-edit]');
     if (promptButton) {
@@ -661,10 +749,30 @@
           const promptVersions = list(await api(`/api/agents/${encodeURIComponent(id)}/prompts`));
           const current = promptVersions.reduce((latest, entry) => Number(entry?.version) > Number(latest?.version) ? entry : latest, promptVersions[0]);
           q('textarea', form).value = current?.prompt || '';
+          const history = q(`#prompt-history-${CSS.escape(id)}`);
+          history.innerHTML = promptVersions.length > 1
+            ? `<h3>Earlier versions</h3>${promptVersions.filter((entry) => Number(entry.version) !== Number(current?.version)).map((entry) => `<details class="prompt-version"><summary>Version ${esc(entry.version)} · ${esc(date(entry.created_at))}</summary><pre>${esc(entry.prompt)}</pre><button class="button outline small-button" type="button" data-prompt-rollback="${esc(id)}" data-version="${esc(entry.version)}">Restore version ${esc(entry.version)}</button></details>`).join('')}`
+            : '<p class="prompt-history-empty">No earlier prompt versions.</p>';
           form.hidden = false;
           q('textarea', form).focus();
         } catch (error) { showMessage(`Could not load prompt: ${error.message}`); }
       } else form.hidden = true;
+      return;
+    }
+    const rollbackButton = event.target.closest('[data-prompt-rollback]');
+    if (rollbackButton) {
+      const {agent, version} = {agent:rollbackButton.dataset.promptRollback, version:rollbackButton.dataset.version};
+      const confirmed = window.confirm(`Restore prompt version ${version}? This creates a new version using that saved prompt.`);
+      if (!confirmed) return;
+      rollbackButton.disabled = true;
+      try {
+        const result = await api(`/api/agents/${encodeURIComponent(agent)}/prompts/rollback`, {method:'POST', body:JSON.stringify({version:Number(version)})});
+        showMessage(`Prompt version ${result?.version || 'new'} restored from version ${version}.`, false);
+        await loadAgents();
+      } catch (error) {
+        showMessage(`Could not restore prompt version ${version}: ${error.message}`);
+        rollbackButton.disabled = false;
+      }
       return;
     }
     const probeButton = event.target.closest('[data-model-probe]');

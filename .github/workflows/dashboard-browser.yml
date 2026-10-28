@@ -1,0 +1,66 @@
+name: Dashboard browser lab
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dashboard-browser.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/browser-lab/**'
+      - 'web/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'go.mod'
+      - 'go.sum'
+  push:
+    paths:
+      - '.github/workflows/dashboard-browser.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/browser-lab/**'
+      - 'web/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install browser test dependency
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run Go and dashboard regressions
+        run: npm test
+      - name: Build isolated daemon
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/ownbotd-browser" ./cmd/ownbotd
+          echo "OWNBOTD_BINARY=$RUNNER_TEMP/ownbotd-browser" >> "$GITHUB_ENV"
+      - name: Install Chromium and system libraries
+        run: npx playwright install --with-deps chromium
+      - name: Exercise desktop and phone workflows in real Chromium
+        run: npm run test:browser
+      - name: Upload secret-free UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownyourbot-dashboard-screenshots
+          path: scripts/browser-lab/artifacts/browser-results/**/*.png
+          if-no-files-found: warn
+          retention-days: 14

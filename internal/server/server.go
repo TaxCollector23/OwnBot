@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -47,6 +48,10 @@ type Server struct {
 	localAuthMu      sync.Mutex
 	bootstrapTickets map[string]time.Time
 	localSessions    map[string]time.Time
+	automationCtx    context.Context
+	automationCancel context.CancelFunc
+	automationDone   chan struct{}
+	automationClock  func() time.Time
 }
 
 func New(dir string) (*Server, error) {
@@ -62,7 +67,7 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time)}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), automationClock: time.Now}
 	if err = s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -72,6 +77,10 @@ func New(dir string) (*Server, error) {
 		return nil, err
 	}
 	if err = s.recoverRuns(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = s.recoverJobs(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -89,9 +98,14 @@ func New(dir string) (*Server, error) {
 	s.modelClient = func(c ModelConfig) models.Client {
 		return &models.OpenAICompatible{BaseURL: c.BaseURL, Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	}
+	s.startAutomationWorker()
 	return s, nil
 }
-func (s *Server) Close() error          { s.events.Close(); return errors.Join(s.hosts.Close(), s.db.Close()) }
+func (s *Server) Close() error {
+	s.stopAutomationWorker()
+	s.events.Close()
+	return errors.Join(s.hosts.Close(), s.db.Close())
+}
 func (s *Server) Handler() http.Handler { return s.security(s.mux) }
 func tokenFile(dir string) (string, error) {
 	p := filepath.Join(dir, "api.token")
@@ -624,18 +638,24 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 }
 
 type Automation struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Enabled     bool            `json:"enabled"`
-	TriggerType string          `json:"trigger_type"`
-	Schedule    string          `json:"schedule"`
-	Pipeline    json.RawMessage `json:"pipeline"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Enabled         bool            `json:"enabled"`
+	TriggerType     string          `json:"trigger_type"`
+	Schedule        string          `json:"schedule,omitempty"`
+	AgentID         string          `json:"agent_id"`
+	Input           string          `json:"input"`
+	IntervalMinutes int             `json:"interval_minutes,omitempty"`
+	TimeUTC         string          `json:"time_utc,omitempty"`
+	NextRunAt       string          `json:"next_run_at,omitempty"`
+	ValidationError string          `json:"validation_error,omitempty"`
+	Pipeline        json.RawMessage `json:"pipeline,omitempty"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
 }
 
 func (s *Server) automations(w http.ResponseWriter, r *http.Request) {
-	rows, e := s.db.Query(`SELECT id,name,enabled,trigger_type,schedule,pipeline_json,created_at,updated_at FROM automations ORDER BY created_at DESC`)
+	rows, e := s.db.Query(`SELECT id,name,enabled,trigger_type,schedule,pipeline_json,created_at,updated_at,agent_id,input,interval_minutes,time_utc,next_run_at,validation_error FROM automations ORDER BY created_at DESC`)
 	if e != nil {
 		errJSON(w, 500, e.Error())
 		return
@@ -646,7 +666,7 @@ func (s *Server) automations(w http.ResponseWriter, r *http.Request) {
 		var a Automation
 		var en int
 		var p string
-		if e = rows.Scan(&a.ID, &a.Name, &en, &a.TriggerType, &a.Schedule, &p, &a.CreatedAt, &a.UpdatedAt); e != nil {
+		if e = rows.Scan(&a.ID, &a.Name, &en, &a.TriggerType, &a.Schedule, &p, &a.CreatedAt, &a.UpdatedAt, &a.AgentID, &a.Input, &a.IntervalMinutes, &a.TimeUTC, &a.NextRunAt, &a.ValidationError); e != nil {
 			errJSON(w, 500, e.Error())
 			return
 		}
@@ -670,28 +690,63 @@ func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	if a.TriggerType == "" {
 		a.TriggerType = "manual"
 	}
-	switch a.TriggerType {
-	case "manual", "cron", "polling", "webhook":
-	default:
-		errJSON(w, 400, "unsupported trigger_type")
+	if a.Schedule != "" || (len(a.Pipeline) != 0 && string(a.Pipeline) != `[]`) {
+		errJSON(w, 400, "free-form schedules and pipelines are not executable; use a manual, interval, or daily_utc scheduled agent run")
 		return
 	}
-	if len(a.Pipeline) == 0 {
-		a.Pipeline = json.RawMessage(`[]`)
+	if a.AgentID == "" || a.Input == "" || len(a.Input) > 64000 {
+		errJSON(w, 400, "agent_id and input (1 to 64000 characters) are required")
+		return
 	}
-	if len(a.Pipeline) > 256000 || !json.Valid(a.Pipeline) {
-		errJSON(w, 400, "pipeline must be valid JSON under 256KB")
+	switch a.TriggerType {
+	case "manual":
+		if a.IntervalMinutes != 0 || a.TimeUTC != "" {
+			errJSON(w, 400, "manual runs do not accept a schedule")
+			return
+		}
+	case "interval":
+		if a.IntervalMinutes < 1 || a.IntervalMinutes > 1440 || a.TimeUTC != "" {
+			errJSON(w, 400, "interval_minutes must be 1 to 1440")
+			return
+		}
+		a.Schedule = fmt.Sprintf("every %d minutes", a.IntervalMinutes)
+	case "daily_utc":
+		if !validUTCTime(a.TimeUTC) || a.IntervalMinutes != 0 {
+			errJSON(w, 400, "time_utc must use HH:MM (UTC)")
+			return
+		}
+		a.Schedule = "daily at " + a.TimeUTC + " UTC"
+	default:
+		errJSON(w, 400, "trigger_type must be manual, interval, or daily_utc; legacy cron, polling, and webhook triggers are not executed")
+		return
+	}
+	config, _, e := s.agentConfig(a.AgentID)
+	if e != nil {
+		errJSON(w, 409, "agent is not ready for scheduled runs: "+e.Error())
+		return
+	}
+	if config.Restricted {
+		errJSON(w, 409, "agent model must pass capability checks before scheduled runs")
 		return
 	}
 	a.ID = newID()
 	a.CreatedAt = now()
 	a.UpdatedAt = a.CreatedAt
-	_, e := s.db.Exec(`INSERT INTO automations(id,name,enabled,trigger_type,schedule,pipeline_json,created_at,updated_at)VALUES(?,?,?,?,?,?,?,?)`, a.ID, a.Name, boolInt(a.Enabled), a.TriggerType, a.Schedule, string(a.Pipeline), a.CreatedAt, a.UpdatedAt)
+	if a.Enabled && a.TriggerType != "manual" {
+		a.NextRunAt = nextSchedule(a, s.automationClock()).Format(time.RFC3339Nano)
+	}
+	// Keep the old metadata column empty; scheduled runs execute one pinned
+	// agent call in code and do not interpret caller-supplied pipeline JSON.
+	a.Pipeline = json.RawMessage(`[]`)
+	_, e = s.db.Exec(`INSERT INTO automations(id,name,enabled,trigger_type,schedule,pipeline_json,created_at,updated_at,agent_id,input,interval_minutes,time_utc,next_run_at,validation_error)VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.Name, boolInt(a.Enabled), a.TriggerType, a.Schedule, string(a.Pipeline), a.CreatedAt, a.UpdatedAt, a.AgentID, a.Input, a.IntervalMinutes, a.TimeUTC, a.NextRunAt, "")
 	if e != nil {
 		errJSON(w, 500, "could not save automation")
 		return
 	}
 	s.event("automation.created", "local-user", map[string]any{"automation_id": a.ID, "enabled": a.Enabled})
+	if a.Enabled && a.TriggerType != "manual" {
+		s.scheduleWake()
+	}
 	write(w, 201, a)
 }
 func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
@@ -706,29 +761,57 @@ func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 400, "idempotency_key is required and at most 200 characters")
 		return
 	}
+	var existing, existingAutomation string
+	if err := s.db.QueryRow(`SELECT id,automation_id FROM jobs WHERE idempotency_key=?`, b.IdempotencyKey).Scan(&existing, &existingAutomation); err == nil {
+		if existingAutomation != r.PathValue("id") {
+			errJSON(w, 409, "idempotency_key is already used by another automation")
+			return
+		}
+		write(w, 200, map[string]any{"id": existing, "deduplicated": true})
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		errJSON(w, 500, "could not check job idempotency")
+		return
+	}
+	snap, err := s.jobSnapshot(r.PathValue("id"))
+	if err != nil {
+		errJSON(w, 409, err.Error())
+		return
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		errJSON(w, 500, "could not pin scheduled run")
+		return
+	}
 	at := now()
 	jid := newID()
-	res, e := s.db.Exec(`INSERT OR IGNORE INTO jobs(id,automation_id,idempotency_key,status,run_after,created_at,updated_at)SELECT ?,id,?,'queued',?,?,? FROM automations WHERE id=?`, jid, b.IdempotencyKey, at, at, at, r.PathValue("id"))
+	stepKey := "job:" + jid + ":agent-run:v1"
+	runID := "jobrun-" + jid
+	res, e := s.db.Exec(`INSERT OR IGNORE INTO jobs(id,automation_id,idempotency_key,status,run_after,created_at,updated_at,run_id,step_key,payload_json)SELECT ?,id,?,'queued',?,?,?,?,?,? FROM automations WHERE id=? AND enabled=1 AND validation_error='' AND agent_id<>''`, jid, b.IdempotencyKey, at, at, at, runID, stepKey, string(payload), r.PathValue("id"))
 	if e != nil {
 		errJSON(w, 500, "could not queue job")
 		return
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		var existing string
-		e = s.db.QueryRow(`SELECT id FROM jobs WHERE idempotency_key=?`, b.IdempotencyKey).Scan(&existing)
-		if e == nil {
+		e = s.db.QueryRow(`SELECT id,automation_id FROM jobs WHERE idempotency_key=?`, b.IdempotencyKey).Scan(&existing, &existingAutomation)
+		if e == nil && existingAutomation == r.PathValue("id") {
 			write(w, 200, map[string]any{"id": existing, "deduplicated": true})
+			return
+		}
+		if e == nil {
+			errJSON(w, 409, "idempotency_key is already used by another automation")
 			return
 		}
 		errJSON(w, 404, "automation not found")
 		return
 	}
-	s.event("job.queued", "local-user", map[string]any{"job_id": jid, "automation_id": r.PathValue("id"), "idempotency_key": b.IdempotencyKey})
+	s.event("job.queued", "local-user", map[string]any{"job_id": jid, "automation_id": r.PathValue("id"), "idempotency_key": b.IdempotencyKey, "step_key": stepKey})
+	s.scheduleWake()
 	write(w, 201, map[string]any{"id": jid, "status": "queued", "run_after": at, "deduplicated": false})
 }
 func (s *Server) jobs(w http.ResponseWriter, r *http.Request) {
-	rows, e := s.db.Query(`SELECT id,automation_id,idempotency_key,status,attempts,run_after,last_error,created_at,updated_at FROM jobs ORDER BY created_at DESC LIMIT 500`)
+	rows, e := s.db.Query(`SELECT id,automation_id,idempotency_key,status,attempts,run_after,last_error,created_at,updated_at,run_id,step_key FROM jobs ORDER BY created_at DESC LIMIT 500`)
 	if e != nil {
 		errJSON(w, 500, e.Error())
 		return
@@ -736,13 +819,13 @@ func (s *Server) jobs(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, aid, key, state, after, last, created, updated string
+		var id, aid, key, state, after, last, created, updated, runID, stepKey string
 		var attempts int
-		if e = rows.Scan(&id, &aid, &key, &state, &attempts, &after, &last, &created, &updated); e != nil {
+		if e = rows.Scan(&id, &aid, &key, &state, &attempts, &after, &last, &created, &updated, &runID, &stepKey); e != nil {
 			errJSON(w, 500, e.Error())
 			return
 		}
-		out = append(out, map[string]any{"id": id, "automation_id": aid, "idempotency_key": key, "status": state, "attempts": attempts, "run_after": after, "last_error": last, "created_at": created, "updated_at": updated})
+		out = append(out, map[string]any{"id": id, "automation_id": aid, "idempotency_key": key, "status": state, "attempts": attempts, "run_after": after, "next_run_at": after, "last_error": last, "run_id": runID, "step_key": stepKey, "created_at": created, "updated_at": updated})
 	}
 	write(w, 200, out)
 }

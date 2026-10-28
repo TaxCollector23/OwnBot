@@ -40,6 +40,7 @@ function harness(connectRequiresAuth = false, rejectSearch = false) {
     let status = 200;
     let data = [];
     if (path === '/api/status') data = {ok:true, api_token_required:true};
+    else if (path === '/api/models' && method === 'GET') data = [{id:'m1', provider:'ollama', model:'m1', base_url:'http://127.0.0.1:11434/v1', last_probe:{score:100, json_output:true, single_tool:true, tool_choice:true, argument_accuracy:true, restricted:false}, probed_at:'2026-10-27T10:00:00Z'}];
     else if (path === '/api/search' && method === 'GET') data = {provider:'searxng', endpoint:searchEndpoint, configured:Boolean(searchEndpoint), requests_leave_device:true};
     else if (path === '/api/search' && method === 'POST' && rejectSearch) { status = 400; data = {error:'search endpoint must use HTTPS or loopback HTTP without credentials'}; }
     else if (path === '/api/search' && method === 'POST') { searchEndpoint = JSON.parse(options.body).endpoint; data = {provider:'searxng', endpoint:searchEndpoint, configured:true, requests_leave_device:true}; }
@@ -75,7 +76,8 @@ async function main() {
   const enable = {dataset:{agentEnabled:'a1', enabled:'false'}, disabled:false};
   await h.listeners.get('click')({target:{closest:(selector)=>selector === '[data-agent-enabled]' ? enable : null}});
   assert.equal(h.agents[0].enabled, true, 'enable action persists enabled state');
-  assert.match(h.element('#agents-list').innerHTML, /data-run-form="a1"/, 'enabled agent receives run form');
+  assert.equal(h.element('#task-form').hidden, false, 'an enabled agent and local model unlock the task composer');
+  assert.equal(h.element('#task-form').dataset.runForm, 'a1', 'composer targets the selected enabled agent');
 
   const capabilityForm = {dataset:{agentToolsForm:'a1'}, values:{web_search:'on', mcp_enabled:'on', tool:['Lookup'], mcp_server:['s1']}};
   await h.listeners.get('submit')({target:{closest:(selector)=>selector === '.agent-capability-form' ? capabilityForm : null}, preventDefault(){}});
@@ -84,7 +86,9 @@ async function main() {
   assert.deepEqual(JSON.parse(capabilityPatch.body).tools, ['Lookup']);
   assert.deepEqual(JSON.parse(capabilityPatch.body).mcp_servers, ['s1']);
 
-  const form = {dataset:{runForm:'a1'}, values:{input:'hello'}, reset(){}, querySelector(){return {disabled:false};}};
+  const form = h.element('#task-form');
+  form.values = {input:'hello'};
+  form.querySelector = () => ({disabled:false});
   await h.listeners.get('submit')({target:{closest:(selector)=>selector === '.run-form' ? form : null}, preventDefault(){}});
   assert.ok(h.requests.some(({path, method, body}) => path === '/api/agents/a1/runs' && method === 'POST' && JSON.parse(body).input === 'hello'));
 
