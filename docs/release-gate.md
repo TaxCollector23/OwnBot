@@ -9,7 +9,7 @@ OwnBot is under development. Do not publish an installable release or claim thes
 - [ ] Two fresh installs on the lowest supported hardware: GUI-only and SSH-only.
 - [ ] Prompt edit, next-run version, and rollback.
 - [ ] Disabled web search and MCP calls are refused by the server.
-- [ ] Google Calendar, email, Notion, and Calendly connect/read/write/disconnect through public MCP servers.
+- [ ] With real Notion and Calendly accounts, verify OAuth sign-in plus read/write/disconnect; Google Calendar and Gmail remain gated on the local Google Cloud OAuth client setup in TODO.md.
 - [ ] Restart a scheduled pipeline mid-run and retry without duplicate events.
 - [ ] Every external write requires approval; hostile email or other external content cannot cause unapproved writes; every tool call is audited.
 - [ ] Threat tests pass, including unauthorized requests, replay and revocation, cross-site requests, credential disclosure, prompt injection, and duplicate writes.

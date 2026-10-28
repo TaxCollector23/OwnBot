@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -457,8 +458,71 @@ func TestMCPConnectAuthRequiredDoesNotPromptOrEchoCredentials(t *testing.T) {
 	}))
 	defer server.Close()
 	err := Run([]string{"connect", "connect", "--url", server.URL, "--data-dir", dataDir, "s1"}, strings.NewReader(""), io.Discard, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "OAuth or sign-in") || strings.Contains(err.Error(), testToken) {
+	if err == nil || !strings.Contains(err.Error(), "connect authorize") || strings.Contains(err.Error(), testToken) {
 		t.Fatalf("auth_required should be clearly reported without credentials: %v", err)
+	}
+}
+
+func TestMCPAuthorizePrintsOnlyTheProviderURL(t *testing.T) {
+	dataDir := tokenDir(t)
+	var gotPath string
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.Method + " " + r.URL.Path
+		_, _ = io.WriteString(w, `{"authorization_url":"https://issuer.example/authorize?client_id=public&state=one-use","callback_port":41999,"connected":false,"grants_created":false}`)
+	}))
+	defer server.Close()
+	var stdout bytes.Buffer
+	err := Run([]string{"connect", "authorize", "--ssh-target", "user@server.example", "--url", server.URL, "--data-dir", dataDir, "s1"}, strings.NewReader(""), &stdout, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "POST /api/mcp/servers/s1/oauth/start" || !strings.Contains(stdout.String(), "ssh -L 127.0.0.1:41999:127.0.0.1:41999 -N 'user@server.example'") || !strings.Contains(stdout.String(), "https://issuer.example/authorize") || strings.Contains(stdout.String(), testToken) {
+		t.Fatalf("authorize command did not print the safe sign-in URL: path=%q output=%q", gotPath, stdout.String())
+	}
+}
+
+func TestPublicMCPConnectCreatesDisabledCredentialsOnlyConfig(t *testing.T) {
+	dataDir := tokenDir(t)
+	var paths []string
+	var configured map[string]any
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		switch r.Method + " " + r.URL.Path {
+		case "GET /api/mcp/servers":
+			_, _ = io.WriteString(w, `[]`)
+		case "POST /api/mcp/servers":
+			if err := json.NewDecoder(r.Body).Decode(&configured); err != nil {
+				t.Errorf("decode config: %v", err)
+			}
+			_, _ = io.WriteString(w, `{"id":"svc1","name":"Notion","transport":"streamable_http","endpoint":"https://mcp.notion.com/mcp","enabled":false,"allowed_tools":[],"oauth_authorized":false}`)
+		case "POST /api/mcp/servers/svc1/oauth/start":
+			_, _ = io.WriteString(w, `{"authorization_url":"https://issuer.example/authorize?state=one-use","callback_port":42001}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	var stdout bytes.Buffer
+	err := Run([]string{"connect", "notion", "--ssh-target", "user@server.example", "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &stdout, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := []string{"GET /api/mcp/servers", "POST /api/mcp/servers", "POST /api/mcp/servers/svc1/oauth/start"}
+	if !reflect.DeepEqual(paths, wantPaths) {
+		t.Fatalf("unexpected public service flow: %v", paths)
+	}
+	if configured["enabled"] != false || len(configured["allowed_tools"].([]any)) != 0 || len(configured["read_tools"].([]any)) != 0 || len(configured["write_tools"].([]any)) != 0 {
+		t.Fatalf("service alias created tools or runtime grants: %#v", configured)
+	}
+	if !strings.Contains(stdout.String(), "credentials only") || !strings.Contains(stdout.String(), "ssh -L 127.0.0.1:42001:127.0.0.1:42001") || !strings.Contains(stdout.String(), "https://issuer.example/authorize") {
+		t.Fatalf("service alias omitted no-grant or SSH details: %s", stdout.String())
+	}
+}
+
+func TestGooglePublicMCPConnectExplainsDeferredClientSetup(t *testing.T) {
+	err := Run([]string{"connect", "calendar"}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "TODO.md") || !strings.Contains(err.Error(), "Google Cloud OAuth client") {
+		t.Fatalf("Google setup was not deferred actionably: %v", err)
 	}
 }
 

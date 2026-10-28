@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,7 +13,8 @@ import (
 func (s *Server) loadMCP(id string) (MCPServerConfig, error) {
 	var c MCPServerConfig
 	var args, env, allowed, reads, writes string
-	err := s.db.QueryRow(`SELECT id,name,transport,endpoint,command,args_json,working_directory,environment_allowlist_json,allowed_tools_json,read_tools_json,write_tools_json,request_timeout_seconds,created_at,updated_at FROM mcp_servers WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Transport, &c.Endpoint, &c.Command, &args, &c.WorkingDirectory, &env, &allowed, &reads, &writes, &c.RequestTimeoutSeconds, &c.CreatedAt, &c.UpdatedAt)
+	var authorized int
+	err := s.db.QueryRow(`SELECT id,name,transport,endpoint,command,args_json,working_directory,environment_allowlist_json,allowed_tools_json,read_tools_json,write_tools_json,request_timeout_seconds,created_at,updated_at,EXISTS(SELECT 1 FROM mcp_oauth_tokens WHERE server_id=mcp_servers.id) FROM mcp_servers WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Transport, &c.Endpoint, &c.Command, &args, &c.WorkingDirectory, &env, &allowed, &reads, &writes, &c.RequestTimeoutSeconds, &c.CreatedAt, &c.UpdatedAt, &authorized)
 	if err != nil {
 		return c, err
 	}
@@ -27,6 +29,7 @@ func (s *Server) loadMCP(id string) (MCPServerConfig, error) {
 	_, err = s.hosts.Tools(id)
 	c.Enabled = err == nil
 	c.RuntimeAvailable = c.Enabled
+	c.OAuthAuthorized = authorized == 1
 	return c, nil
 }
 func (s *Server) connectMCP(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +50,11 @@ func (s *Server) connectMCP(w http.ResponseWriter, r *http.Request) {
 		s.registry.RemoveServer(c.ID)
 		_ = s.hosts.Disconnect(c.ID)
 	}
-	tools, err := s.hosts.Connect(r.Context(), mcp.HostConfig{ID: c.ID, Name: c.Name, Transport: c.Transport, Enabled: true, Endpoint: c.Endpoint, AllowedTools: c.AllowedTools, ReadTools: c.ReadTools, WriteTools: c.WriteTools, RequestTimeout: time.Duration(c.RequestTimeoutSeconds) * time.Second})
+	tools, err := s.hosts.Connect(r.Context(), mcp.HostConfig{ID: c.ID, Name: c.Name, Transport: c.Transport, Enabled: true, Endpoint: c.Endpoint, AllowedTools: c.AllowedTools, ReadTools: c.ReadTools, WriteTools: c.WriteTools, RequestTimeout: time.Duration(c.RequestTimeoutSeconds) * time.Second, Token: func(ctx context.Context) (string, error) { return s.accessTokenForMCP(ctx, c.ID) }})
 	if err != nil {
 		if errors.Is(err, mcp.ErrAuthenticationRequired) {
 			write(w, 409, map[string]any{
-				"error": "Provider sign-in is required, but OAuth sign-in is not wired in this build",
+				"error": "Provider sign-in is required; run `ownbot connect authorize SERVER_ID` to sign in",
 				"code":  "auth_required", "auth_status": "required", "connected": false,
 				"runtime_available": false, "grants_created": false,
 			})
@@ -96,8 +99,11 @@ func (s *Server) disconnectMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.registry.RemoveServer(c.ID)
 	err = s.hosts.Disconnect(c.ID)
-	if err != nil && !errors.Is(err, mcp.ErrHostNotConnected) {
-		errJSON(w, 502, "local MCP access revoked; provider session cleanup failed")
+	providerSessionErr := err != nil && !errors.Is(err, mcp.ErrHostNotConnected)
+	s.removePendingOAuth(c.ID)
+	providerRevocationErr := s.clearOAuthToken(r.Context(), c.ID)
+	if errors.Is(providerRevocationErr, errLocalOAuthState) {
+		errJSON(w, 500, "could not clear local MCP authorization")
 		return
 	}
 	tx, err := s.db.BeginTx(r.Context(), nil)
@@ -112,6 +118,11 @@ func (s *Server) disconnectMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Enabled = false
 	c.RuntimeAvailable = false
+	c.OAuthAuthorized = false
+	if providerSessionErr || errors.Is(providerRevocationErr, errProviderRevocation) {
+		errJSON(w, 502, "local MCP access and credentials were removed; provider session cleanup could not be confirmed")
+		return
+	}
 	write(w, 200, c)
 }
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {

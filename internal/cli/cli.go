@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"ownbot/internal/mcp"
 )
 
 type command struct {
@@ -107,6 +109,7 @@ type mcpConfig struct {
 	WriteTools            []string     `json:"write_tools"`
 	RequestTimeoutSeconds int          `json:"request_timeout_seconds"`
 	RuntimeAvailable      bool         `json:"runtime_available"`
+	OAuthAuthorized       bool         `json:"oauth_authorized"`
 	DiscoveredTools       []toolConfig `json:"discovered_tools,omitempty"`
 }
 
@@ -990,6 +993,8 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	switch args[0] {
+	case "notion", "calendly", "calendar", "google_calendar", "gmail", "email":
+		return runPublicMCPConnect(args, stdout, stderr)
 	case "list":
 		fs := flag.NewFlagSet("connect list", flag.ContinueOnError)
 		apiURL, dataDir := commonFlags(fs)
@@ -1071,9 +1076,10 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		}
 		_, _ = fmt.Fprintf(stdout, "Saved disabled metadata for %q. No provider connection or tool is active.\n", config.Name)
 		return writeJSON(stdout, config)
-	case "connect", "disconnect":
+	case "connect", "disconnect", "authorize", "clear-auth":
 		fs := flag.NewFlagSet("connect "+args[0], flag.ContinueOnError)
 		apiURL, dataDir := commonFlags(fs)
+		sshTarget := fs.String("ssh-target", "", "SSH target to use when forwarding the loopback OAuth callback")
 		if err := parseFlags(fs, args[1:], stderr); err != nil {
 			return err
 		}
@@ -1087,6 +1093,27 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		id := urlPath(fs.Arg(0))
 		var config mcpConfig
 		path := "/api/mcp/servers/" + id + "/" + args[0]
+		if args[0] == "authorize" {
+			var auth struct {
+				AuthorizationURL string `json:"authorization_url"`
+				CallbackPort     int    `json:"callback_port"`
+			}
+			if err := client.Do(backgroundContext(), "POST", "/api/mcp/servers/"+id+"/oauth/start", map[string]any{}, &auth); err != nil {
+				return err
+			}
+			if command, isSSH := oauthCallbackForward(auth.CallbackPort, *sshTarget); isSSH {
+				_, _ = fmt.Fprintf(stdout, "Before opening the sign-in URL on your browser machine, start this additional loopback callback tunnel:\n%s\n", command)
+			}
+			_, _ = fmt.Fprintf(stdout, "Open this URL to sign in. The callback returns to loopback; no tools are granted to agents.\n%s\n", auth.AuthorizationURL)
+			return nil
+		}
+		if args[0] == "clear-auth" {
+			if err := client.Do(backgroundContext(), "POST", "/api/mcp/servers/"+id+"/oauth/clear", map[string]any{}, nil); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(stdout, "Cleared local OAuth authorization for %q.\n", id)
+			return nil
+		}
 		if err := client.Do(backgroundContext(), "POST", path, map[string]any{}, &config); err != nil {
 			return err
 		}
@@ -1126,6 +1153,65 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown connect command %q; run `ownbot connect --help`", args[0])
 	}
+}
+
+func runPublicMCPConnect(args []string, stdout, stderr io.Writer) error {
+	service, ok := mcp.LookupService(args[0])
+	if !ok {
+		return fmt.Errorf("unknown public MCP service %q", args[0])
+	}
+	if !service.OAuthAvailable {
+		return errors.New(service.Name + " sign-in is deferred. " + service.Notice)
+	}
+	fs := flag.NewFlagSet("connect "+args[0], flag.ContinueOnError)
+	apiURL, dataDir := commonFlags(fs)
+	sshTarget := fs.String("ssh-target", "", "SSH target to use when forwarding the loopback OAuth callback")
+	if err := parseFlags(fs, args[1:], stderr); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: ownbot connect %s [--ssh-target USER@HOST] [--url URL] [--data-dir DIR]", args[0])
+	}
+	client, err := clientFor(*apiURL, *dataDir)
+	if err != nil {
+		return err
+	}
+	var configs []mcpConfig
+	if err := client.Do(backgroundContext(), "GET", "/api/mcp/servers", nil, &configs); err != nil {
+		return err
+	}
+	var selected *mcpConfig
+	for i := range configs {
+		if configs[i].Transport == "streamable_http" && configs[i].Endpoint == service.Endpoint {
+			selected = &configs[i]
+			break
+		}
+	}
+	if selected == nil {
+		body := map[string]any{
+			"name": service.Name, "transport": service.Transport, "endpoint": service.Endpoint,
+			"allowed_tools": []string{}, "read_tools": []string{}, "write_tools": []string{},
+			"request_timeout_seconds": 30, "enabled": false,
+		}
+		var config mcpConfig
+		if err := client.Do(backgroundContext(), "POST", "/api/mcp/servers", body, &config); err != nil {
+			return err
+		}
+		selected = &config
+	}
+	var auth struct {
+		AuthorizationURL string `json:"authorization_url"`
+		CallbackPort     int    `json:"callback_port"`
+	}
+	if err := client.Do(backgroundContext(), "POST", "/api/mcp/servers/"+urlPath(selected.ID)+"/oauth/start", map[string]any{}, &auth); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(stdout, "Started sign-in for %s (server %s). This saves credentials only; no tools are connected or granted.\n", service.Name, selected.ID)
+	if command, isSSH := oauthCallbackForward(auth.CallbackPort, *sshTarget); isSSH {
+		_, _ = fmt.Fprintf(stdout, "Before opening the sign-in URL on your browser machine, start this additional loopback callback tunnel:\n%s\n", command)
+	}
+	_, _ = fmt.Fprintf(stdout, "Open this URL to sign in.\n%s\n", auth.AuthorizationURL)
+	return nil
 }
 
 func validateMCPToolClasses(allowed, reads, writes []string) error {
@@ -1172,16 +1258,62 @@ func validateMCPToolClasses(allowed, reads, writes []string) error {
 
 func printConnectHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Connect commands manage HTTP MCP connections and their saved configuration:
+  ownbot connect notion|calendly|calendar|gmail [--ssh-target USER@HOST]
   ownbot connect list
   ownbot connect add --name NAME --transport streamable_http --endpoint URL
   ownbot connect connect SERVER_ID
+  ownbot connect authorize [--ssh-target USER@HOST] SERVER_ID
   ownbot connect disconnect SERVER_ID
+  ownbot connect clear-auth SERVER_ID
   ownbot connect remove SERVER_ID
 
 Use repeatable --tool, --read-tool, and --write-tool to save exact server tool names. stdio can be saved as metadata but cannot connect in this daemon.
 HTTP servers require every allowed tool to be classified as read or write; use disjoint classes.
-OAuth and provider sign-in are unavailable. No API keys or credentials are collected; connecting discovers tools but never calls them.
+Use connect notion or connect calendly to save/reuse disabled server metadata and start public-provider OAuth sign-in. The flow uses PKCE and a one-use loopback callback. Connect authorize SERVER_ID starts sign-in for an existing config; clear-auth removes a saved grant and requests provider revocation. No API keys are collected; connecting discovers tools but never calls them or grants them to agents.
+OAuth tokens stay in the private local OwnBot database and are not encrypted separately. When you run OwnBot over SSH, authorize prints the additional callback tunnel for that sign-in.
 `)
+}
+
+func oauthCallbackForward(port int, target string) (string, bool) {
+	if port < 1 || port > 65535 {
+		return "", false
+	}
+	target = strings.TrimSpace(target)
+	sshPort := ""
+	if target == "" {
+		connection := strings.Fields(os.Getenv("SSH_CONNECTION"))
+		if len(connection) == 4 {
+			serverAddr := connection[2]
+			if ip := net.ParseIP(serverAddr); ip != nil && ip.To4() == nil {
+				serverAddr = "[" + serverAddr + "]"
+			}
+			if user := strings.TrimSpace(os.Getenv("USER")); user != "" {
+				target = user + "@" + serverAddr
+			} else {
+				target = serverAddr
+			}
+			if parsedPort, err := strconv.Atoi(connection[3]); err == nil && parsedPort > 0 && parsedPort <= 65535 && parsedPort != 22 {
+				sshPort = strconv.Itoa(parsedPort)
+			}
+		}
+	}
+	if target == "" {
+		if os.Getenv("SSH_CONNECTION") == "" {
+			return "", false
+		}
+		target = "<same-SSH-target>"
+	}
+	forward := fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%d", port, port)
+	command := "ssh"
+	if sshPort != "" {
+		command += " -p " + sshPort
+	}
+	command += " -L " + forward + " -N " + shellQuote(target)
+	return command, true
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func runSearch(args []string, stdout, stderr io.Writer) error {

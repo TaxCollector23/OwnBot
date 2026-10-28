@@ -25,12 +25,13 @@ func TestPublicServiceCatalogIsCredentialsOnlyAndDoesNotGrantAgents(t *testing.T
 		if !ok || endpoint != service.Endpoint {
 			t.Errorf("unexpected service endpoint: %+v", service)
 		}
-		if !service.RequiresOAuth || service.OAuthAvailable || service.Status != ServiceOAuthUnavailable {
-			t.Errorf("service claims unsupported OAuth capability: %+v", service)
-		}
 		notice := strings.ToLower(service.Notice)
-		if !strings.Contains(notice, "not wired") && !strings.Contains(notice, "neither is wired") {
-			t.Errorf("service notice omits OAuth limitation: %q", service.Notice)
+		if service.ID == "google_calendar" || service.ID == "email" {
+			if !service.RequiresOAuth || service.OAuthAvailable || service.Status != ServiceOAuthUnavailable || !strings.Contains(notice, "todo.md") {
+				t.Errorf("Google setup limitation is unclear: %+v", service)
+			}
+		} else if !service.RequiresOAuth || !service.OAuthAvailable || service.Status != ServiceOAuthAvailable {
+			t.Errorf("service does not expose available OAuth: %+v", service)
 		}
 		b, _ := json.Marshal(service)
 		var fields map[string]json.RawMessage

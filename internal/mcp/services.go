@@ -5,12 +5,12 @@ import "strings"
 type ServiceStatus string
 
 const (
-	ServiceOAuthUnavailable ServiceStatus = "oauth_sign_in_not_wired"
+	ServiceOAuthUnavailable ServiceStatus = "oauth_setup_required"
+	ServiceOAuthAvailable   ServiceStatus = "oauth_available"
 )
 
-// Service describes a public MCP provider without storing credentials or
-// granting its tools to any agent. OAuthAvailable remains false until OwnBot
-// has an OAuth redirect flow and a secure token store.
+// Service describes a public MCP provider without storing credentials in its
+// catalog or granting its tools to any agent.
 type Service struct {
 	ID             string        `json:"id"`
 	Name           string        `json:"name"`
@@ -34,28 +34,28 @@ var publicServices = []Service{
 		Endpoint: "https://calendarmcp.googleapis.com/mcp/v1", Transport: "streamable_http",
 		AuthMethod: "Google OAuth 2.0", Status: ServiceOAuthUnavailable, RequiresOAuth: true,
 		Preview: true, NoAgentGrants: true,
-		Notice: "Google Workspace Developer Preview; OAuth sign-in is not wired in this build. Connecting will not grant tools to agents.",
+		Notice: "Google Workspace Developer Preview. Configure the Google Cloud OAuth client described in TODO.md before sign-in. Connecting will not grant tools to agents.",
 	},
 	{
 		ID: "email", Name: "Email (Gmail)", Provider: "Google",
 		Endpoint: "https://gmailmcp.googleapis.com/mcp/v1", Transport: "streamable_http",
 		AuthMethod: "Google OAuth 2.0", Status: ServiceOAuthUnavailable, RequiresOAuth: true,
 		Preview: true, NoAgentGrants: true,
-		Notice: "Gmail MCP is in Google Workspace Developer Preview; OAuth sign-in is not wired in this build. Connecting will not grant tools to agents.",
+		Notice: "Gmail MCP is in Google Workspace Developer Preview. Configure the Google Cloud OAuth client described in TODO.md before sign-in. Connecting will not grant tools to agents.",
 	},
 	{
 		ID: "notion", Name: "Notion", Provider: "Notion",
 		Endpoint: "https://mcp.notion.com/mcp", Transport: "streamable_http",
-		AuthMethod: "Notion OAuth sign-in", Status: ServiceOAuthUnavailable, RequiresOAuth: true,
+		AuthMethod: "Notion OAuth sign-in", Status: ServiceOAuthAvailable, RequiresOAuth: true, OAuthAvailable: true,
 		NoAgentGrants: true,
-		Notice:        "Notion OAuth sign-in is not wired in this build; workspace policy may also need to approve this client. Connecting will not grant tools to agents.",
+		Notice:        "Sign in through Notion. Workspace policy may also need to approve this client. Connecting will not grant tools to agents.",
 	},
 	{
 		ID: "calendly", Name: "Calendly", Provider: "Calendly",
 		Endpoint: "https://mcp.calendly.com", Transport: "streamable_http",
-		AuthMethod: "OAuth 2.1 PKCE and dynamic client registration", Status: ServiceOAuthUnavailable,
-		RequiresOAuth: true, NoAgentGrants: true,
-		Notice: "Calendly requires OAuth 2.1 PKCE and dynamic client registration; neither is wired in this build. API keys and personal access tokens are not accepted here. Connecting will not grant tools to agents.",
+		AuthMethod: "OAuth 2.1 PKCE and dynamic client registration", Status: ServiceOAuthAvailable,
+		RequiresOAuth: true, OAuthAvailable: true, NoAgentGrants: true,
+		Notice: "Sign in through Calendly. API keys and personal access tokens are not accepted here. Connecting will not grant tools to agents.",
 	},
 }
 

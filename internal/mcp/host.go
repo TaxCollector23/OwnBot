@@ -47,6 +47,7 @@ type HostConfig struct {
 	ReadTools            []string
 	WriteTools           []string
 	RequestTimeout       time.Duration
+	Token                func(context.Context) (string, error)
 }
 
 type managedHost struct {
@@ -146,7 +147,7 @@ func (m *HostManager) Connect(ctx context.Context, cfg HostConfig) ([]engine.Too
 			return nil, err
 		}
 	case "streamable_http":
-		entry.http = &HTTPClient{Endpoint: cfg.Endpoint, Enabled: true, AllowedTools: append([]string(nil), cfg.AllowedTools...), Authorize: proof}
+		entry.http = &HTTPClient{Endpoint: cfg.Endpoint, Enabled: true, AllowedTools: append([]string(nil), cfg.AllowedTools...), Token: cfg.Token, Authorize: proof}
 		if err := entry.http.Connect(ctx); err != nil {
 			if isAuthenticationError(err) {
 				return nil, fmt.Errorf("%w: provider rejected unauthenticated connection", ErrAuthenticationRequired)

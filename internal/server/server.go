@@ -48,6 +48,10 @@ type Server struct {
 	localAuthMu      sync.Mutex
 	bootstrapTickets map[string]time.Time
 	localSessions    map[string]time.Time
+	oauthMu          sync.Mutex
+	oauthTokenMu     sync.Mutex
+	oauthFlows       map[string]*pendingMCPOAuth
+	oauthHTTP        mcp.OAuthHTTPClient
 	automationCtx    context.Context
 	automationCancel context.CancelFunc
 	automationDone   chan struct{}
@@ -67,7 +71,7 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), automationClock: time.Now}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), oauthFlows: make(map[string]*pendingMCPOAuth), automationClock: time.Now}
 	if err = s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -103,6 +107,7 @@ func New(dir string) (*Server, error) {
 }
 func (s *Server) Close() error {
 	s.stopAutomationWorker()
+	s.closePendingOAuth()
 	s.events.Close()
 	return errors.Join(s.hosts.Close(), s.db.Close())
 }
@@ -144,6 +149,7 @@ func tokenFile(dir string) (string, error) {
 func (s *Server) migrate() error {
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS mcp_servers(id TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,transport TEXT NOT NULL DEFAULT 'stdio',endpoint TEXT NOT NULL DEFAULT '',command TEXT NOT NULL,args_json TEXT NOT NULL DEFAULT '[]',working_directory TEXT NOT NULL DEFAULT '',environment_allowlist_json TEXT NOT NULL DEFAULT '[]',allowed_tools_json TEXT NOT NULL DEFAULT '[]',read_tools_json TEXT NOT NULL DEFAULT '[]',write_tools_json TEXT NOT NULL DEFAULT '[]',request_timeout_seconds INTEGER NOT NULL DEFAULT 30,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mcp_oauth_tokens(server_id TEXT PRIMARY KEY REFERENCES mcp_servers(id) ON DELETE CASCADE,owner TEXT NOT NULL,client_id TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL DEFAULT '',expires_at INTEGER NOT NULL DEFAULT 0,discovery_json TEXT NOT NULL,scope TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS model_configs(id TEXT PRIMARY KEY,name TEXT NOT NULL DEFAULT '',provider TEXT NOT NULL,base_url TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS model_probes(id INTEGER PRIMARY KEY AUTOINCREMENT,model_config_id TEXT NOT NULL REFERENCES model_configs(id) ON DELETE CASCADE,score INTEGER NOT NULL,json_output INTEGER NOT NULL,single_tool INTEGER NOT NULL,tool_choice INTEGER NOT NULL,argument_accuracy INTEGER NOT NULL,restricted INTEGER NOT NULL,probed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS agents(id TEXT PRIMARY KEY,name TEXT NOT NULL,model TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1,web_search INTEGER NOT NULL DEFAULT 0,mcp_enabled INTEGER NOT NULL DEFAULT 0,tools_json TEXT NOT NULL DEFAULT '[]',max_steps INTEGER NOT NULL DEFAULT 8,max_tokens INTEGER NOT NULL DEFAULT 4096,timeout_seconds INTEGER NOT NULL DEFAULT 120,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -210,10 +216,13 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/events", s.events)
 	s.mux.HandleFunc("POST /api/events/ticket", s.eventTicket)
 	s.mux.HandleFunc("GET /api/mcp/servers", s.mcpServers)
+	s.mux.HandleFunc("GET /api/mcp/services", s.mcpServices)
 	s.mux.HandleFunc("POST /api/mcp/servers", s.createMCPServer)
 	s.mux.HandleFunc("DELETE /api/mcp/servers/{id}", s.revokeMCPServer)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/connect", s.connectMCP)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/disconnect", s.disconnectMCP)
+	s.mux.HandleFunc("POST /api/mcp/servers/{id}/oauth/start", s.startMCPOAuth)
+	s.mux.HandleFunc("POST /api/mcp/servers/{id}/oauth/clear", s.clearMCPOAuth)
 	s.mux.HandleFunc("GET /api/tools", s.listTools)
 	s.mux.HandleFunc("GET /api/models", s.models)
 	s.mux.HandleFunc("POST /api/models", s.createModel)
@@ -1023,10 +1032,11 @@ type MCPServerConfig struct {
 	CreatedAt             string   `json:"created_at"`
 	UpdatedAt             string   `json:"updated_at"`
 	RuntimeAvailable      bool     `json:"runtime_available"`
+	OAuthAuthorized       bool     `json:"oauth_authorized"`
 }
 
 func (s *Server) mcpServers(w http.ResponseWriter, r *http.Request) {
-	rows, e := s.db.Query(`SELECT id,name,enabled,transport,endpoint,command,args_json,working_directory,environment_allowlist_json,allowed_tools_json,read_tools_json,write_tools_json,request_timeout_seconds,created_at,updated_at FROM mcp_servers ORDER BY created_at DESC`)
+	rows, e := s.db.Query(`SELECT id,name,enabled,transport,endpoint,command,args_json,working_directory,environment_allowlist_json,allowed_tools_json,read_tools_json,write_tools_json,request_timeout_seconds,created_at,updated_at,EXISTS(SELECT 1 FROM mcp_oauth_tokens WHERE server_id=mcp_servers.id) FROM mcp_servers ORDER BY created_at DESC`)
 	if e != nil {
 		errJSON(w, 500, "could not read MCP configuration")
 		return
@@ -1035,15 +1045,16 @@ func (s *Server) mcpServers(w http.ResponseWriter, r *http.Request) {
 	out := []MCPServerConfig{}
 	for rows.Next() {
 		var c MCPServerConfig
-		var en int
+		var en, authorized int
 		var args, env, allowed, reads, writes string
-		if e = rows.Scan(&c.ID, &c.Name, &en, &c.Transport, &c.Endpoint, &c.Command, &args, &c.WorkingDirectory, &env, &allowed, &reads, &writes, &c.RequestTimeoutSeconds, &c.CreatedAt, &c.UpdatedAt); e != nil {
+		if e = rows.Scan(&c.ID, &c.Name, &en, &c.Transport, &c.Endpoint, &c.Command, &args, &c.WorkingDirectory, &env, &allowed, &reads, &writes, &c.RequestTimeoutSeconds, &c.CreatedAt, &c.UpdatedAt, &authorized); e != nil {
 			errJSON(w, 500, "could not read MCP configuration")
 			return
 		}
 		_, connectedErr := s.hosts.Tools(c.ID)
 		c.Enabled = connectedErr == nil
 		c.RuntimeAvailable = c.Enabled
+		c.OAuthAuthorized = authorized == 1
 		_ = json.Unmarshal([]byte(args), &c.Args)
 		_ = json.Unmarshal([]byte(env), &c.EnvironmentAllowlist)
 		_ = json.Unmarshal([]byte(allowed), &c.AllowedTools)
@@ -1243,9 +1254,16 @@ func (s *Server) createMCPServer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) revokeMCPServer(w http.ResponseWriter, r *http.Request) {
 	s.mcpMu.Lock()
 	defer s.mcpMu.Unlock()
-	s.registry.RemoveServer(r.PathValue("id"))
-	_ = s.hosts.Disconnect(r.PathValue("id"))
-	res, e := s.db.Exec(`DELETE FROM mcp_servers WHERE id=?`, r.PathValue("id"))
+	serverID := r.PathValue("id")
+	s.removePendingOAuth(serverID)
+	s.registry.RemoveServer(serverID)
+	_ = s.hosts.Disconnect(serverID)
+	providerRevocationErr := s.clearOAuthToken(r.Context(), serverID)
+	if errors.Is(providerRevocationErr, errLocalOAuthState) {
+		errJSON(w, 500, "could not clear local MCP authorization")
+		return
+	}
+	res, e := s.db.Exec(`DELETE FROM mcp_servers WHERE id=?`, serverID)
 	if e != nil {
 		errJSON(w, 500, "could not revoke MCP configuration")
 		return
@@ -1255,6 +1273,10 @@ func (s *Server) revokeMCPServer(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 404, "MCP configuration not found")
 		return
 	}
-	s.event("mcp.server_revoked", "local-user", map[string]any{"server_id": r.PathValue("id")})
+	s.event("mcp.server_revoked", "local-user", map[string]any{"server_id": serverID})
+	if errors.Is(providerRevocationErr, errProviderRevocation) {
+		write(w, 502, map[string]string{"error": "MCP configuration was removed locally; provider revocation could not be confirmed"})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

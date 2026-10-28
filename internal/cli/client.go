@@ -147,7 +147,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body any, result a
 		_ = json.Unmarshal(limited, &apiError)
 		if apiError.Error != "" {
 			if apiError.Code == "auth_required" {
-				return errors.New("MCP server requires OAuth or sign-in; authentication is not available in this build")
+				return errors.New("MCP server requires sign-in; run `ownbot connect authorize SERVER_ID`")
 			}
 			return fmt.Errorf("local API returned %s: %s", resp.Status, apiError.Error)
 		}
