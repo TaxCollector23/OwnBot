@@ -112,6 +112,13 @@ def set_stage(runtime, model, results_dir, stage):
     write(path, report)
 
 
+def refresh_known_metadata(report, runtime, model):
+    current = baseline(runtime, model)
+    for key in ("runtime_version", "model_digest", "model_hash", "model_revision", "quantization", "runtime_pid"):
+        if current[key] not in ("", "unavailable"):
+            report[key] = current[key]
+
+
 def capture_server_log(runtime, model, results_dir, log_path):
     path = evidence_path(results_dir, runtime)
     report = baseline(runtime, model)
@@ -120,6 +127,7 @@ def capture_server_log(runtime, model, results_dir, log_path):
             report.update(json.loads(path.read_text()))
         except (OSError, json.JSONDecodeError):
             pass
+    refresh_known_metadata(report, runtime, model)
     if not report.get("pass") and pathlib.Path(log_path).is_file():
         with pathlib.Path(log_path).open("rb") as source:
             source.seek(max(0, pathlib.Path(log_path).stat().st_size - 12000))
@@ -209,7 +217,7 @@ def probe(runtime, model, base_url, results_dir):
 
 def main():
     if len(sys.argv) < 2:
-        raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
+    raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
     if sys.argv[1] == "init" and len(sys.argv) == 5:
         _, _, runtime, model, results_dir = sys.argv
         initialize(runtime, model, results_dir)
@@ -225,7 +233,7 @@ def main():
     if sys.argv[1] == "probe" and len(sys.argv) == 6:
         _, _, runtime, model, base_url, results_dir = sys.argv
         return 0 if probe(runtime, model, base_url, results_dir) else 1
-        raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
+    raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
 
 
 if __name__ == "__main__":
