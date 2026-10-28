@@ -28,8 +28,19 @@ type HTTPClient struct {
 	session      string
 	nextID       int
 	initialized  bool
+	authRequired bool
 	version      string
 }
+
+// Streamable HTTP was introduced in 2025-03-26. These are the handshake-era
+// revisions this transport can speak; 2026-07-28 uses a different lifecycle.
+var supportedHTTPVersions = map[string]bool{
+	"2025-03-26": true,
+	"2025-06-18": true,
+	"2025-11-25": true,
+}
+
+func supportsHTTPVersion(version string) bool { return supportedHTTPVersions[version] }
 
 // HTTPStatusError contains only the response status code; provider bodies are
 // intentionally excluded because they may echo credentials or private data.
@@ -68,6 +79,9 @@ func (c *HTTPClient) Connect(ctx context.Context) error {
 	if c.initialized {
 		return nil
 	}
+	c.authRequired = false
+	c.session = ""
+	c.version = ""
 	result, err := c.exchange(ctx, "initialize", map[string]any{"protocolVersion": protocolVersion, "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "ownbot", "version": "dev"}}, false)
 	if err != nil {
 		return err
@@ -77,6 +91,9 @@ func (c *HTTPClient) Connect(ctx context.Context) error {
 	}
 	if json.Unmarshal(result, &hello) != nil || hello.ProtocolVersion == "" {
 		return errors.New("invalid MCP initialize response")
+	}
+	if !supportsHTTPVersion(hello.ProtocolVersion) {
+		return errors.New("MCP server negotiated an unsupported protocol version")
 	}
 	c.version = hello.ProtocolVersion
 	if _, err = c.exchange(ctx, "notifications/initialized", nil, true); err != nil {
@@ -88,6 +105,9 @@ func (c *HTTPClient) Connect(ctx context.Context) error {
 func (c *HTTPClient) Tools(ctx context.Context) ([]Tool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.authRequired {
+		return nil, ErrAuthenticationRequired
+	}
 	if !c.initialized {
 		return nil, ErrNotConnected
 	}
@@ -135,6 +155,9 @@ func (c *HTTPClient) Tools(ctx context.Context) ([]Tool, error) {
 func (c *HTTPClient) CallTool(ctx context.Context, name string, args json.RawMessage) (ToolResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.authRequired {
+		return ToolResult{}, ErrAuthenticationRequired
+	}
 	if !c.initialized {
 		return ToolResult{}, ErrNotConnected
 	}
@@ -152,6 +175,9 @@ func (c *HTTPClient) CallTool(ctx context.Context, name string, args json.RawMes
 	}
 	raw, err := c.exchange(ctx, "tools/call", map[string]any{"name": name, "arguments": args}, false)
 	if err != nil {
+		if isAuthenticationError(err) {
+			return ToolResult{}, fmt.Errorf("%w: provider authorization expired or was denied", ErrAuthenticationRequired)
+		}
 		return ToolResult{}, err
 	}
 	var out ToolResult
@@ -205,6 +231,10 @@ func (c *HTTPClient) exchange(ctx context.Context, method string, params any, no
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			c.authRequired = true
+			c.initialized = false
+		}
 		return nil, &HTTPStatusError{Code: resp.StatusCode}
 	}
 	if method == "initialize" {

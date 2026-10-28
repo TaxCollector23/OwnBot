@@ -50,10 +50,11 @@ type HostConfig struct {
 }
 
 type managedHost struct {
-	config HostConfig
-	stdio  *Client
-	http   *HTTPClient
-	tools  []engine.Tool
+	config        HostConfig
+	stdio         *Client
+	http          *HTTPClient
+	tools         []engine.Tool
+	providerNames map[string]string // engine-safe alias -> server-provided tool name
 }
 
 // HostManager connects explicitly configured MCP providers and produces
@@ -98,7 +99,7 @@ func (m *HostManager) Connect(ctx context.Context, cfg HostConfig) ([]engine.Too
 	if _, exists := m.hosts[cfg.ID]; exists {
 		return nil, ErrHostConnected
 	}
-	entry := &managedHost{config: cfg}
+	entry := &managedHost{config: cfg, providerNames: make(map[string]string, len(cfg.AllowedTools))}
 	m.hosts[cfg.ID] = entry
 	connected := false
 	defer func() {
@@ -152,7 +153,7 @@ func (m *HostManager) Connect(ctx context.Context, cfg HostConfig) ([]engine.Too
 			}
 			return nil, err
 		}
-		if entry.http.version != protocolVersion {
+		if !supportsHTTPVersion(entry.http.version) {
 			return nil, errors.New("MCP server negotiated an unsupported protocol version")
 		}
 		discovered, err = entry.http.Tools(ctx)
@@ -193,6 +194,7 @@ func (m *HostManager) Connect(ctx context.Context, cfg HostConfig) ([]engine.Too
 		aliasesSeen[alias] = true
 		toolSchema := models.Tool{Name: alias, Description: prefixedDescription(cfg.ID, remoteName, remoteTool.Description), Parameters: append(json.RawMessage(nil), remoteTool.InputSchema...)}
 		binding := engine.Tool{Schema: toolSchema, Source: "mcp", Server: cfg.ID, Untrusted: true}
+		entry.providerNames[alias] = remoteName
 		if readSet[remoteName] {
 			binding.Risk = engine.Read
 		} else {
@@ -218,6 +220,9 @@ func (m *HostManager) Connect(ctx context.Context, cfg HostConfig) ([]engine.Too
 				result, err = entry.http.CallTool(callCtx, remoteNameCopy, args)
 			}
 			if err != nil {
+				if isAuthenticationError(err) {
+					return nil, fmt.Errorf("%w: provider authorization expired or was denied", ErrAuthenticationRequired)
+				}
 				return nil, err
 			}
 			encoded, err := json.Marshal(result)
@@ -271,7 +276,32 @@ func (m *HostManager) Tools(serverID string) ([]engine.Tool, error) {
 	if !ok {
 		return nil, ErrHostNotConnected
 	}
+	if entry.http != nil {
+		entry.http.mu.Lock()
+		authRequired := entry.http.authRequired
+		entry.http.mu.Unlock()
+		if authRequired {
+			return nil, ErrAuthenticationRequired
+		}
+	}
 	return append([]engine.Tool(nil), entry.tools...), nil
+}
+
+// ProviderToolName returns the remote name represented by a connected tool
+// alias. It lets API clients compare configured provider allowlists without
+// exposing provider names as agent-callable tool names.
+func (m *HostManager) ProviderToolName(serverID, alias string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.hosts[serverID]
+	if !ok {
+		return "", false
+	}
+	name, ok := entry.providerNames[alias]
+	return name, ok
 }
 
 func (m *HostManager) checkAliasCollisions(serverID string, tools []engine.Tool) error {
@@ -379,7 +409,7 @@ func terminateHTTPSession(client *HTTPClient) error {
 	client.session = ""
 	client.version = ""
 	client.mu.Unlock()
-	if session == "" || version != protocolVersion {
+	if session == "" || !supportsHTTPVersion(version) {
 		return nil
 	}
 	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)

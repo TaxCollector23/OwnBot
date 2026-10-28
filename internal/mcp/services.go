@@ -6,7 +6,6 @@ type ServiceStatus string
 
 const (
 	ServiceOAuthUnavailable ServiceStatus = "oauth_sign_in_not_wired"
-	ServiceExperimentalAuth ServiceStatus = "experimental_reauthentication_required"
 )
 
 // Service describes a public MCP provider without storing credentials or
@@ -57,12 +56,6 @@ var publicServices = []Service{
 		AuthMethod: "OAuth 2.1 PKCE and dynamic client registration", Status: ServiceOAuthUnavailable,
 		RequiresOAuth: true, NoAgentGrants: true,
 		Notice: "Calendly requires OAuth 2.1 PKCE and dynamic client registration; neither is wired in this build. API keys and personal access tokens are not accepted here. Connecting will not grant tools to agents.",
-	},
-	{
-		ID: "alexa", Name: "Alexa", Provider: "Amazon Alexa",
-		AuthMethod: "Amazon account sign-in", Status: ServiceExperimentalAuth,
-		Experimental: true, ReauthRequired: true, NoAgentGrants: true,
-		Notice: "Alexa support is experimental and requires account re-authentication. No Alexa service connection or action is available in this build.",
 	},
 }
 

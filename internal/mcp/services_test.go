@@ -14,21 +14,12 @@ func TestPublicServiceCatalogIsCredentialsOnlyAndDoesNotGrantAgents(t *testing.T
 		"calendly":        "https://mcp.calendly.com",
 	}
 	services := Services()
-	if len(services) != 5 {
-		t.Fatalf("catalog has %d services, want four OAuth providers and Alexa status", len(services))
+	if len(services) != 4 {
+		t.Fatalf("catalog has %d services, want four OAuth providers", len(services))
 	}
 	for _, service := range services {
 		if !service.NoAgentGrants {
 			t.Errorf("service %q could grant agent tools during connect", service.ID)
-		}
-		if service.ID == "alexa" {
-			if !service.Experimental || !service.ReauthRequired || service.Endpoint != "" || service.Status != ServiceExperimentalAuth {
-				t.Errorf("Alexa catalog status is misleading: %+v", service)
-			}
-			if !strings.Contains(strings.ToLower(service.Notice), "experimental") || !strings.Contains(strings.ToLower(service.Notice), "re-authentication") {
-				t.Errorf("Alexa notice is missing state: %q", service.Notice)
-			}
-			continue
 		}
 		endpoint, ok := want[service.ID]
 		if !ok || endpoint != service.Endpoint {
@@ -55,7 +46,7 @@ func TestPublicServiceCatalogIsCredentialsOnlyAndDoesNotGrantAgents(t *testing.T
 func TestLookupServiceStableIDsAndAliases(t *testing.T) {
 	for alias, id := range map[string]string{
 		"calendar": "google_calendar", "Google Calendar": "google_calendar", "gcal": "google_calendar",
-		"gmail": "email", "email": "email", "notion": "notion", "calendly": "calendly", "alexa": "alexa",
+		"gmail": "email", "email": "email", "notion": "notion", "calendly": "calendly",
 	} {
 		service, ok := LookupService(alias)
 		if !ok || service.ID != id {
@@ -64,5 +55,8 @@ func TestLookupServiceStableIDsAndAliases(t *testing.T) {
 	}
 	if _, ok := LookupService("unknown"); ok {
 		t.Fatal("unknown provider resolved")
+	}
+	if _, ok := LookupService("alexa"); ok {
+		t.Fatal("removed Alexa workflow resolved")
 	}
 }

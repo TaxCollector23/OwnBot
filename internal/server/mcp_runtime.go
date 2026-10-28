@@ -41,6 +41,12 @@ func (s *Server) connectMCP(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 409, "stdio execution remains disabled until OS isolation can protect local credentials")
 		return
 	}
+	if _, stateErr := s.hosts.Tools(c.ID); errors.Is(stateErr, mcp.ErrAuthenticationRequired) {
+		// A provider rejected the connected session. Revoke its stale tool bindings
+		// before allowing a fresh connection attempt.
+		s.registry.RemoveServer(c.ID)
+		_ = s.hosts.Disconnect(c.ID)
+	}
 	tools, err := s.hosts.Connect(r.Context(), mcp.HostConfig{ID: c.ID, Name: c.Name, Transport: c.Transport, Enabled: true, Endpoint: c.Endpoint, AllowedTools: c.AllowedTools, ReadTools: c.ReadTools, WriteTools: c.WriteTools, RequestTimeout: time.Duration(c.RequestTimeoutSeconds) * time.Second})
 	if err != nil {
 		if errors.Is(err, mcp.ErrAuthenticationRequired) {
@@ -111,7 +117,19 @@ func (s *Server) disconnectMCP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for _, tool := range s.registry.List() {
-		out = append(out, map[string]any{"name": tool.Schema.Name, "description": tool.Schema.Description, "risk": tool.Risk, "source": tool.Source, "server": tool.Server})
+		if tool.Source == "mcp" {
+			if _, err := s.hosts.Tools(tool.Server); err != nil {
+				s.registry.RemoveServer(tool.Server)
+				continue
+			}
+		}
+		item := map[string]any{"name": tool.Schema.Name, "description": tool.Schema.Description, "risk": tool.Risk, "source": tool.Source, "server": tool.Server}
+		if tool.Source == "mcp" {
+			if providerName, ok := s.hosts.ProviderToolName(tool.Server, tool.Schema.Name); ok {
+				item["provider_tool"] = providerName
+			}
+		}
+		out = append(out, item)
 	}
 	write(w, 200, out)
 }

@@ -1,18 +1,18 @@
 # MCP connections
 
-OwnBot includes a Go MCP client for explicitly configured **local stdio** servers using the MCP `2025-11-25` initialization protocol. The daemon can store disabled configurations but does not yet start them. Using the client requires an explicit command and tool allowlist, plus a read/write classification for every tool to expose.
+The daemon can connect to configured **Streamable HTTP** MCP servers. It initializes supported handshake-era protocol versions (`2025-03-26`, `2025-06-18`, and `2025-11-25`), discovers tools, and exposes only explicitly allowlisted tools with a read/write classification. Remote metadata is treated as untrusted. Each tool call is schema-validated and passes through the engine's dispatch and approval policy; writes always require approval.
 
-Each call also requires a runtime `AuthorizeCall` decision, including tools classified as read. A tool name allowlist alone never authorizes an invocation. The daemon does not pass vault credentials to child processes. The subprocess receives only a small environment allowlist, with credential-like names rejected. It still runs as the daemon's OS user and can access files that user can access; this is environment scrubbing, not an OS sandbox. Configure only local commands you trust.
+The daemon does not currently expose an OAuth sign-in flow or persist provider tokens. An HTTP `401` or `403` marks the runtime session as requiring re-authentication; subsequent calls fail closed. The low-level HTTP client accepts a runtime token callback, but the daemon connection API does not provide one, so the daemon cannot complete provider re-authentication in this build.
 
-A Streamable HTTP client is implemented separately in this package, but it is **not connected to the daemon API or runtime**. Its current authentication support is limited to an explicitly configured in-memory bearer token; OAuth authorization and credential persistence are not implemented.
+The public provider catalog contains these official hosted servers. Each requires provider OAuth and is reported unavailable until sign-in is implemented:
 
-## Public provider MCP servers
-
-| Provider | Hosted endpoint | Authentication and constraints |
+| Provider | Endpoint | Verified provider documentation |
 |---|---|---|
-| Google Calendar | `https://calendarmcp.googleapis.com/mcp/v1` | Streamable HTTP and OAuth 2.0. Google labels it Developer Preview and requires Workspace Developer Preview enrollment, a Google Cloud project, enabled Calendar/MCP APIs, and OAuth client setup. [Configuration guide](https://developers.google.com/workspace/calendar/api/guides/configure-mcp-server) · [Endpoint and tool reference](https://developers.google.com/workspace/calendar/api/v3/reference/mcp) |
-| Gmail | `https://gmailmcp.googleapis.com/mcp/v1` | Streamable HTTP and OAuth 2.0; also in Google Workspace Developer Preview. Its published tools search/read threads, list labels/drafts, label threads/messages, and create drafts. There is no send-email tool in the published list; a draft must be reviewed and sent separately in Gmail. [Configuration guide](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server) · [Endpoint and tool reference](https://developers.google.com/workspace/gmail/api/reference/mcp) |
-| Notion | `https://mcp.notion.com/mcp` (Streamable HTTP); `/sse` is a legacy SSE endpoint | Hosted by Notion; OAuth 2.0 Authorization Code with PKCE and token refresh are required for a full client. [Official client guide](https://github.com/makenotion/notion-cookbook/blob/main/docs/mcp-client-integration.md) · [Official server repository](https://github.com/makenotion/notion-mcp-server) |
-| Calendly | `https://mcp.calendly.com` | Hosted by Calendly; OAuth 2.1 Authorization Code + PKCE and Dynamic Client Registration are required. Personal access tokens and static client credentials are not supported by this MCP server. [Calendly MCP documentation](https://developer.calendly.com/docs/mcp/calendly-mcp-server) |
+| Google Calendar | `https://calendarmcp.googleapis.com/mcp/v1` | [Google Workspace configuration](https://developers.google.com/workspace/guides/configure-mcp-servers) · [Calendar endpoint and tools](https://developers.google.com/workspace/calendar/api/v3/reference/mcp) |
+| Gmail | `https://gmailmcp.googleapis.com/mcp/v1` | [Google Workspace configuration](https://developers.google.com/workspace/guides/configure-mcp-servers) · [Gmail endpoint and tools](https://developers.google.com/workspace/gmail/api/reference/mcp) |
+| Notion | `https://mcp.notion.com/mcp` | [Notion MCP client guide](https://github.com/makenotion/notion-cookbook/blob/main/docs/mcp-client-integration.md) |
+| Calendly | `https://mcp.calendly.com` | [Calendly MCP server and OAuth requirements](https://developer.calendly.com/docs/mcp/calendly-mcp-server) |
 
-These provider endpoints use Streamable HTTP and cannot be connected directly through OwnBot's stdio transport. OwnBot has not authenticated to, started, or verified any provider account. No provider credentials or live services were used in local tests.
+Google lists Calendar and Gmail in its Workspace Developer Preview; both require Google Cloud setup and OAuth 2.0. Calendly requires OAuth 2.1 with PKCE and dynamic client registration. No provider account was authenticated or used by local tests. The MCP `2026-07-28` protocol lifecycle is not implemented.
+
+The package also includes a local stdio client, but the daemon API refuses to start stdio servers until OS isolation protects local credentials. A stdio subprocess, if used directly by another caller, runs with that caller's OS permissions; environment scrubbing is not a sandbox.

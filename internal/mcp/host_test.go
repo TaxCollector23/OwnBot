@@ -210,6 +210,55 @@ func TestHostManagerRejectsUnsupportedNegotiatedProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestHostManagerAcceptsEarlierStreamableHTTPRevisionAndTerminatesSession(t *testing.T) {
+	var deleted atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			if r.Header.Get("Mcp-Session-Id") != "session-legacy" {
+				t.Error("session ID missing during disconnect")
+			}
+			if r.Header.Get("MCP-Protocol-Version") != "2025-06-18" {
+				t.Errorf("unexpected protocol version on disconnect: %q", r.Header.Get("MCP-Protocol-Version"))
+			}
+			deleted.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if json.NewDecoder(r.Body).Decode(&req) != nil {
+			t.Error("invalid MCP request")
+			return
+		}
+		switch req.Method {
+		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "session-legacy")
+			respondMCP(w, req.ID, map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			respondMCP(w, req.ID, map[string]any{"tools": []any{map[string]any{"name": "lookup", "inputSchema": map[string]any{"type": "object"}}}})
+		default:
+			t.Errorf("unexpected method: %s", req.Method)
+		}
+	}))
+	defer server.Close()
+
+	manager := NewHostManager()
+	_, err := manager.Connect(context.Background(), HostConfig{ID: "legacy", Transport: "streamable_http", Enabled: true, Endpoint: server.URL, AllowedTools: []string{"lookup"}, ReadTools: []string{"lookup"}})
+	if err != nil {
+		t.Fatalf("connect to supported legacy revision: %v", err)
+	}
+	if err := manager.Disconnect("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Load() != 1 {
+		t.Fatalf("expected session termination request, got %d", deleted.Load())
+	}
+}
+
 func TestHostManagerReportsAuthenticationRequiredWithoutPersistingHost(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
