@@ -11,3 +11,6 @@ scripts/browser-lab/artifacts/
 
 /ownbotd
 /ownbotd.exe
+
+__pycache__/
+*.pyc

@@ -19,4 +19,3 @@ The Pages site is dependency-free static HTML under `docs-site/`. Keep it usable
 ```sh
 python3 scripts/check-doc-links.py
 ```
-
