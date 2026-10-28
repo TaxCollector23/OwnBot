@@ -44,6 +44,9 @@ func serviceSpec(cfg daemon.Config) (service.Spec, error) {
 		name += ".exe"
 	}
 	path := filepath.Join(filepath.Dir(executable), name)
+	if active := activeUpdateBinary(cfg.DataDir, "ownbotd"); active != "" {
+		path = active
+	}
 	return service.Spec{Executable: path, Args: serviceArgs(cfg), DataDir: cfg.DataDir}, nil
 }
 

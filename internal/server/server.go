@@ -21,6 +21,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+	"ownbot/internal/buildinfo"
 	"ownbot/internal/engine"
 	"ownbot/internal/events"
 	"ownbot/internal/mcp"
@@ -345,7 +346,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(`SELECT count(*) FROM approvals WHERE status='pending'`).Scan(&p)
 	_ = s.db.QueryRow(`SELECT count(*) FROM automations WHERE enabled=1`).Scan(&m)
 	_ = s.db.QueryRow(`SELECT count(*) FROM jobs WHERE status IN('queued','retry')`).Scan(&j)
-	write(w, 200, map[string]any{"ok": true, "service": "ownbot", "version": "development", "agents": a, "pending_approvals": p, "active_automations": m, "queued_jobs": j, "api_token_required": true})
+	write(w, 200, map[string]any{"ok": true, "service": "ownbot", "version": buildinfo.Version, "agents": a, "pending_approvals": p, "active_automations": m, "queued_jobs": j, "api_token_required": true})
 }
 
 type Agent struct {

@@ -23,17 +23,20 @@ import (
 
 func runDaemon(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || (len(args) > 1 && (args[1] == "--help" || args[1] == "-h")) {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownbot daemon start|stop|install|uninstall|status [daemon flags]\n\nStart or stop the local daemon, install or remove its per-user login service, or inspect service status. install/uninstall never request administrator access. Options include --config, --data-dir, --listen, --socket, --lan, --lan-address, and --shutdown-timeout.")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot daemon start|stop|install|uninstall|status|update [options]\n\nStart or stop the local daemon, install or remove its per-user login service, inspect service status, or install a signed release. update supports --version VERSION or --rollback. Options include --config, --data-dir, --listen, --socket, --lan, --lan-address, and --shutdown-timeout.")
 		return nil
 	}
 	if args[0] == "install" || args[0] == "uninstall" || args[0] == "status" {
 		return runServiceCommand(args[0], args[1:], stdout, stderr)
 	}
+	if args[0] == "update" {
+		return runDaemonUpdate(args[1:], stdout, stderr)
+	}
 	if args[0] == "stop" {
 		return stopDaemon(args[1:], stdout, stderr)
 	}
 	if args[0] != "start" {
-		return fmt.Errorf("unknown daemon command %q; use `ownbot daemon start|stop|install|uninstall|status`", args[0])
+		return fmt.Errorf("unknown daemon command %q; use `ownbot daemon start|stop|install|uninstall|status|update`", args[0])
 	}
 	cfg, err := daemon.Load(args[1:], os.Getenv, io.Discard)
 	if err != nil {

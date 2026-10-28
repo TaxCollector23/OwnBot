@@ -1,0 +1,18 @@
+# Signed releases and rollback
+
+`npm install -g ownbot@VERSION` downloads the version-matched release, verifies its Ed25519 signature and archive digest with Node's built-in crypto, then extracts only the two expected binaries from a bounded tar.gz archive. It does not require Go. For an intentional local source build, set `OWNBOT_BUILD_FROM_SOURCE=1`; that path requires Go 1.24 or later and is not used as an automatic fallback.
+
+`ownbot daemon update [--version VERSION]` verifies the detached Ed25519 signature on `manifest.json`, verifies the selected archive digest from that signed manifest, stages both binaries under `~/.ownbot/updates/versions/`, runs executable and version-matched daemon health checks, and atomically updates `active.json`. The state directory, API token, database, and configuration stay in place. `ownbot daemon update --rollback` switches to the previous retained release and health-checks it. A running or service-managed daemon must use a loopback TCP listener so the updater can authenticate its shutdown and verify the new daemon version.
+
+On the first update from an npm-installed release, the updater seeds the rollback slot only after re-verifying the package's saved signature and the installed CLI and daemon digests. It refuses to claim rollback support when it cannot prove the currently installed baseline.
+
+The same updater follows `OWNBOT_DATA_DIR` and daemon `--data-dir`/`--config`. On later invocations an older CLI delegates to the version selected by that directory's active marker. The daemon and per-user service also resolve their executable from that marker. Windows binaries are kept in versioned directories so a running executable is never overwritten. Homebrew-managed binaries must be updated with `brew upgrade ownbot`; the updater refuses to shadow a Cellar installation.
+
+## Maintainer signing
+
+1. Generate a release key on a trusted maintainer machine, outside the checkout: `go run scripts/release/sign.go keygen --key-id ownbot-release-2026 --private-out "$HOME/.ownbot-release/ed25519.private" --public-out "$HOME/.ownbot-release/ed25519.public"`. The private file is created mode `0600` and is never printed. Back it up in the organization's approved secret manager.
+2. Review the public key, then add its base64 raw bytes under the matching key ID in `internal/update/trusted-keys.json`. Go embeds this shared trust file, and the npm installer reads the same file. Only the public key is committed.
+3. Store the base64 private key as the protected GitHub Actions secret `OWNBOT_RELEASE_PRIVATE_KEY`. The tag release workflow signs the exact manifest bytes and includes `manifest.sig` in `SHA256SUMS` before publishing.
+4. Local signing uses `python3 scripts/release/pipeline.py sign --key-id ownbot-release-2026 --output dist --private-key-env OWNBOT_RELEASE_PRIVATE_KEY` with that environment variable set. The signer rejects a private-key file that grants group or other access.
+
+`internal/update/trusted-keys.json` intentionally ships with no production key until maintainers provision and review one. In that state signed updates and npm prebuilt installation fail closed; unsigned releases are never accepted.

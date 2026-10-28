@@ -189,6 +189,9 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 		daemonName += ".exe"
 	}
 	daemonPath := filepath.Join(filepath.Dir(executable), daemonName)
+	if active := activeUpdateBinary(dataDir, "ownbotd"); active != "" {
+		daemonPath = active
+	}
 	if _, err := os.Stat(daemonPath); err != nil {
 		return errors.New("daemon binary is missing; reinstall OwnBot or rebuild both binaries")
 	}
@@ -253,6 +256,7 @@ Commands:
   daemon start  Start the local daemon and open its dashboard
   daemon stop   Stop the local daemon
   daemon install|uninstall|status  Manage the current user's login service
+  daemon update [--version VERSION|--rollback]  Update or restore a signed release
   inspect       Review hardware, model probes, agents, and tool permissions
   help          Show this list
 

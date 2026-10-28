@@ -10,6 +10,7 @@
     "internal",
     "web",
     "scripts/build.js",
+    "scripts/release-install.js",
     "scripts/ownbot.js",
     "go.mod",
     "go.sum",
@@ -19,6 +20,7 @@
   "scripts": {
     "test": "go test ./... && node scripts/test-dashboard-auth.js && node scripts/test-dashboard-runtime.js && node scripts/test-dashboard-lan.js",
     "postinstall": "node scripts/build.js",
+    "test:release-installer": "node --test scripts/release-install.test.js",
     "test:browser": "playwright test --config=scripts/browser-lab/playwright.config.cjs"
   },
   "devDependencies": {

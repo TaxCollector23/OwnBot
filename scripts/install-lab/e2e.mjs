@@ -31,10 +31,14 @@ try {
   const pack = run('npm', ['pack', '--pack-destination', temp], { cwd: repo });
   const tarName = pack.stdout.trim().split('\n').at(-1);
   const prefix = join(temp, 'prefix');
-  run('npm', ['install', '--prefix', prefix, '--no-audit', '--no-fund', join(temp, tarName)]);
+  run('npm', ['install', '--prefix', prefix, '--no-audit', '--no-fund', join(temp, tarName)], {
+    env: { ...process.env, OWNBOT_BUILD_FROM_SOURCE: '1' },
+  });
   ownbot = join(prefix, 'node_modules', '.bin', 'ownbot');
   run(ownbot, ['--help']);
-  const daemon = join(prefix, 'node_modules', 'ownbot', 'bin', process.platform === 'win32' ? 'ownbotd.exe' : 'ownbotd');
+  const packageRoot = join(prefix, 'node_modules', 'ownbot');
+  const active = JSON.parse(await readFile(join(packageRoot, 'bin', 'current.json'), 'utf8'));
+  const daemon = join(packageRoot, 'bin', 'releases', active.version, process.platform === 'win32' ? 'ownbotd.exe' : 'ownbotd');
   run(daemon, ['--help']);
   const port = await freePort();
   url = `http://127.0.0.1:${port}`;

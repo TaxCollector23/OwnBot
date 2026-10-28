@@ -25,8 +25,16 @@ jobs:
           python-version: '3.x'
       - name: Check release packaging
         run: python3 -m unittest scripts.release.test_pipeline
+      - name: Check signed update and npm verification paths
+        run: go test ./internal/update ./internal/cli ./scripts/release && node --test scripts/release-install.test.js
       - name: Build and verify CLI and daemon archives
         run: python3 scripts/release/pipeline.py build --version "$GITHUB_REF_NAME" --output dist
+      - name: Sign release manifest with the maintainer key
+        env:
+          OWNBOT_RELEASE_PRIVATE_KEY: ${{ secrets.OWNBOT_RELEASE_PRIVATE_KEY }}
+        run: python3 scripts/release/pipeline.py sign --key-id ownbot-release-2026 --output dist
+      - name: Verify signed release assets
+        run: python3 scripts/release/pipeline.py verify --output dist --require-signature
       - name: Publish GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
