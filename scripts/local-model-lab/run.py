@@ -217,7 +217,7 @@ def probe(runtime, model, base_url, results_dir):
 
 def main():
     if len(sys.argv) < 2:
-    raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
+        raise SystemExit("usage: run.py init RUNTIME MODEL RESULTS_DIR | stage RUNTIME MODEL RESULTS_DIR STAGE | finalize RUNTIME MODEL RESULTS_DIR LOG | probe RUNTIME MODEL BASE_URL RESULTS_DIR")
     if sys.argv[1] == "init" and len(sys.argv) == 5:
         _, _, runtime, model, results_dir = sys.argv
         initialize(runtime, model, results_dir)
