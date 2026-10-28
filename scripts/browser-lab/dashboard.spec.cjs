@@ -10,7 +10,17 @@ async function setUpModelAgent(page) {
   if (!(await page.locator('#settings-drawer').evaluate((node) => node.open))) await settings.click();
   await page.locator('#add-model-empty').click();
   await page.locator('#model-id').fill('browser-fixture-model');
+  const createModelResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return new URL(response.url()).pathname === '/api/models' && request.method() === 'POST';
+  });
   await page.getByRole('button', {name:'Save model'}).click();
+  const modelResponse = await createModelResponse;
+  if (!modelResponse.ok()) {
+    let reason = `status=${modelResponse.status()}`;
+    try { reason += ` error=${(await modelResponse.json()).error || 'unknown'}`; } catch {}
+    throw new Error(`check=real_model_configuration ${reason}`);
+  }
   await expect(page.locator('#models-list')).toContainText('browser-fixture-model');
   const modelCard = page.locator('[data-model-id]').first();
   const modelID = await modelCard.getAttribute('data-model-id');
@@ -248,7 +258,7 @@ test('real MCP write remains pending until approval; approve dispatches once and
   expect(finalStats.mcpCalls).toHaveLength(1);
 });
 
-test('expired owner session recovers through a new real one-time bootstrap link', async ({ownerPage, daemon}) => {
+test('expired owner session recovers through a new real one-time bootstrap link', async ({ownerPage, daemon}, testInfo) => {
   const page = ownerPage;
   const baseURL = daemon.baseURL;
   await stopProcess(daemon.child);
