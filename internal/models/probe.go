@@ -19,7 +19,7 @@ type ProbeResult struct {
 	Restricted       bool `json:"restricted"`
 }
 
-// Probe performs four small calls to assess whether an endpoint is safe for tool use.
+// Probe performs three small calls to assess whether an endpoint is safe for tool use.
 // threshold is inclusive and callers should persist this result alongside the model.
 func Probe(ctx context.Context, c Client, model string, threshold int) (ProbeResult, error) {
 	p := ProbeResult{Restricted: true}

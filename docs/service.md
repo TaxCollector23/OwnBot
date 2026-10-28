@@ -1,6 +1,6 @@
 # User service
 
-`ownbot daemon install` registers the daemon for the current account and starts it now. Setup uses the same per-user service on macOS and Linux when it starts a new daemon. It does not request administrator access.
+`ownbot daemon install` registers the daemon for the current account and starts it now. Setup uses the same per-user service on macOS and Linux when it starts a new daemon. It does not request administrator access. If Linux has no available systemd user manager, setup starts a detached session daemon and reports that it will not restart at login. Permission and installation failures still stop setup.
 
 ```sh
 ownbot daemon status

@@ -15,5 +15,6 @@ RAM and VRAM are separate where telemetry exists. Linux uses `/proc/meminfo`; ma
 | Runtime | Model | Quantization | Capability checks | Probe time | Runtime peak RSS |
 | --- | --- | --- | --- | --- | --- |
 | Ollama 0.40.12 | qwen3:1.7b | Q4_K_M | 4/4 passed | 44.0 seconds | 1.92 GiB |
+| llama.cpp ac8e1694 | Qwen3-1.7B GGUF | Q8_0 artifact label; runtime metadata unavailable | 4/4 passed | 30.5 seconds | 2.07 GiB |
 
-Measured on a GitHub-hosted Linux CPU runner with 15.6 GiB RAM, Intel Xeon 6973P-C. [Run and evidence artifact](https://github.com/TaxCollector23/OwnBot/actions/runs/40738088838). RSS is sampled process memory, not a minimum RAM requirement. This checks JSON, one tool call, tool choice, and arguments; it does not measure answer quality or hallucinations. M2, FreeBSD, larger models, and GPU performance remain unmeasured. Always probe the installed model on the target host.
+Measured on separate GitHub-hosted Linux CPU runners with 15.6 GiB RAM: Intel Xeon 6973P-C for [Ollama](https://github.com/TaxCollector23/OwnBot/actions/runs/40738088838), AMD EPYC 9V45 for [llama.cpp](https://github.com/TaxCollector23/OwnBot/actions/runs/40741788083). The hosts differ, so these timings cannot rank the runtimes. RSS is sampled process memory, not a minimum RAM requirement. This checks JSON, one tool call, tool choice, and arguments; it does not measure answer quality or hallucinations. M2, FreeBSD, larger models, and GPU performance remain unmeasured. Always probe the installed model on the target host.

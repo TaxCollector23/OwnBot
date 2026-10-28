@@ -9,6 +9,14 @@ Updated 2026-10-28. `ownbot` is still in development. Do not treat this checkout
 - LAN mode provides HTTPS pairing for devices on the host's private network. It does not provide cellular or public internet access.
 - macOS and Linux user-level service management is implemented; verify it on the target machine before relying on it for unattended operation.
 
+## Verified evidence
+
+- Native Go tests passed on macOS, Linux, and Windows; FreeBSD binaries cross-built in [CI](https://github.com/TaxCollector23/OwnBot/actions/runs/40739144312). Cross-building does not verify FreeBSD runtime behavior.
+- The isolated two-container [LAN lab](https://github.com/TaxCollector23/OwnBot/actions/runs/40739144275) passed pairing, replay, revocation, and restart persistence checks.
+- A disposable local npm tarball install built both binaries and verified SSH owner-link redemption, replay rejection, daemon inspection, and shutdown with a service-manager stub. This did not install a real login service.
+- Ollama and llama.cpp each passed all four real capability checks on a hosted CPU runner; see [measured model evidence](docs/hardware.md). This does not establish answer quality or target-hardware fit.
+- Scheduler fixtures cover twenty completed jobs, approval waits, cancellation recovery, live tool revocation, and uncertain-write handling. Real provider runs remain unverified.
+
 ## Release work remaining
 
 - Verify a clean SSH-only setup and dashboard access through the printed SSH tunnel flow.

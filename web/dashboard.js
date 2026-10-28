@@ -55,8 +55,8 @@
     q('#remote-token-copy').hidden = ownerLocal || pairedDevice;
     q('#forget-device-button').hidden = !pairedDevice;
     q('#forget-current-device').hidden = !pairedDevice || !token;
-    tokenForm.hidden = pairedDevice || !ownerLocal;
-    if (show && ownerLocal) tokenInput.focus();
+    q('#token-recovery-button').hidden = !ownerLocal;
+    tokenForm.hidden = true;
   };
   showTokenPanel(false);
   const forgetDevice = () => {
@@ -64,7 +64,7 @@
     pairedDevice = false;
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(PAIRED_KEY);
-    tokenForm.hidden = false;
+    tokenForm.hidden = true;
     showTokenPanel(false);
     showMessage('This browser has forgotten its paired access.', false);
     loadAll();
@@ -92,7 +92,7 @@
       const rejection = pairedDevice
         ? 'This paired device was rejected. Pair it again from the host.'
         : isLoopbackHost
-          ? 'The local owner session expired or was rejected. Run ownyourbot daemon start on the host to reconnect, or enter the owner API token below.'
+          ? 'The local owner session expired or was rejected. Run ownbot daemon start on the host to reconnect, or enter the owner API token below.'
           : 'Device access was rejected. Ask the owner to create a new pairing link from the host.';
       showMessage(rejection);
       throw new Error(rejection);
@@ -130,7 +130,7 @@
       throw new Error(reason || 'The one-time owner link could not be redeemed.');
     }
     const result = await response.json();
-    if (!result?.token) throw new Error('The host did not return a local owner session. Run ownyourbot daemon start again.');
+    if (!result?.token) throw new Error('The host did not return a local owner session. Run ownbot daemon start again.');
     token = result.token;
     pairedDevice = false;
     sessionStorage.setItem(TOKEN_KEY, token);
@@ -192,7 +192,7 @@
       configuredModels = models;
       if (!models.length) { setLoading('#models-list', 'No local models configured.'); updateComposer([]); return; }
       q('#models-list').innerHTML = models.map((model) => `<article class="model-card" data-model-id="${esc(model.id)}">
-        <div class="model-card-head"><div><div class="model-card-title">${esc(value(model.name, model.model, 'Model'))}</div><div class="model-card-meta">${esc(model.provider === 'lm_studio' ? 'LM Studio' : model.provider === 'ollama' ? 'Ollama' : value(model.provider, 'Provider'))} · ${esc(value(model.model, 'Model identifier unavailable'))}</div></div><span class="state-text">${model.last_probe ? 'Probe complete' : 'Not probed'}</span></div>
+        <div class="model-card-head"><div><div class="model-card-title">${esc(value(model.name, model.model, 'Model'))}</div><div class="model-card-meta">${esc(model.provider === 'lm_studio' ? 'LM Studio' : model.provider === 'ollama' ? 'Ollama' : model.provider === 'openai_compatible' ? /:8080\/v1\/?$/.test(String(model.base_url || '')) ? 'llama.cpp' : /:8000\/v1\/?$/.test(String(model.base_url || '')) ? 'vLLM' : 'OpenAI-compatible' : value(model.provider, 'Provider'))} · ${esc(value(model.model, 'Model identifier unavailable'))}</div></div><span class="state-text">${model.last_probe ? 'Probe complete' : 'Not probed'}</span></div>
         <code class="model-endpoint-value">${esc(model.base_url || 'Endpoint not reported')}</code>
         ${renderProbe(model.last_probe, model.probed_at)}
         <div class="row-actions"><button class="probe-action" type="button" data-model-probe="${esc(model.id)}">Run capability probe</button></div>
@@ -206,17 +206,16 @@
     const input = q('#task-input');
     const empty = q('#composer-empty');
     if (!enabled.length || !token || !configuredModels.length) {
-      select.innerHTML = '<option value="">No enabled agents</option>';
+      select.innerHTML = `<option value="">${!configuredModels.length ? 'Add a model first' : 'No enabled agents'}</option>`;
       select.disabled = true;
       input.disabled = true;
       q('#start-task-button').disabled = true;
-      form.hidden = true;
+      form.hidden = false;
       empty.hidden = !token;
       const hasModels = configuredModels.length > 0;
       q('#composer-state').textContent = !token ? 'Connect to your host to begin.' : hasModels ? 'An enabled agent is required.' : 'A local model is required to run a task.';
       const hasAgents = agents.length > 0;
-      q('#composer-empty p').textContent = hasModels ? hasAgents ? 'Enable an agent in Settings to run a task.' : 'Create an agent to run a task.' : 'Add a local model before creating an agent run.';
-      q('#add-model-empty').textContent = hasModels ? hasAgents ? 'Enable an agent' : 'Create an agent' : 'Add a local model';
+      q('#add-model-empty').textContent = !token ? 'Connect to this host' : hasModels ? hasAgents ? 'Enable an agent' : 'Create an agent' : 'Add a local model';
       q('#add-model-empty').dataset.destination = hasModels ? 'agent' : 'model';
       return;
     }
@@ -303,7 +302,7 @@
         const toolChoices = mcpTools.filter((tool) => {
           if (tool.name === 'web_search' && tool.source === 'web_search') return true;
           const server = mcpServers.find((item) => String(item.id) === String(tool.server) || String(item.name) === String(tool.server));
-          return server && (server.runtime_available === true || (server.runtime_available === undefined && Boolean(server.enabled))) && Array.isArray(server.allowed_tools) && server.allowed_tools.includes(tool.name);
+          return server && (server.runtime_available === true || (server.runtime_available === undefined && Boolean(server.enabled))) && Array.isArray(server.allowed_tools) && server.allowed_tools.includes(tool.provider_tool || tool.name);
         });
         const serverChoices = mcpServers.filter((server) => server.runtime_available === true || (server.runtime_available === undefined && Boolean(server.enabled)));
         const agentSelectedServers = selectedServers.length ? selectedServers : toolChoices.filter((tool) => configuredTools.includes(tool.name)).map((tool) => String(mcpServers.find((server) => String(server.id) === String(tool.server) || String(server.name) === String(tool.server))?.id || ''));
@@ -315,7 +314,7 @@
             <label class="check-row"><input type="checkbox" name="web_search" ${agent.web_search ? 'checked' : ''}> Allow web search</label>
             <label class="check-row"><input type="checkbox" name="mcp_enabled" ${agent.mcp_enabled ? 'checked' : ''}> Allow connected MCP tools</label>
             <fieldset><legend>Connected servers</legend>${serverChoices.length ? serverChoices.map((server) => `<label class="check-row"><input type="checkbox" name="mcp_server" value="${esc(server.id)}" ${agentSelectedServers.includes(String(server.id)) ? 'checked' : ''}> ${esc(server.name)}</label>`).join('') : '<div class="item-meta">No connected HTTP servers.</div>'}</fieldset>
-            <fieldset><legend>Tools allowed for this agent</legend>${toolChoices.length ? toolChoices.map((tool) => `<label class="tool-choice"><input type="checkbox" name="tool" value="${esc(tool.name)}" ${configuredTools.includes(tool.name) ? 'checked' : ''}><span><code>${esc(tool.name)}</code> · ${esc(value(tool.risk, 'risk not reported'))}<small>${esc(value(tool.description, 'No description reported'))}</small></span></label>`).join('') : '<div class="item-meta">Connect a server and configure actual tool names in its allowlist to discover tools here.</div>'}</fieldset>
+            <fieldset><legend>Tools allowed for this agent</legend>${toolChoices.length ? toolChoices.map((tool) => `<label class="tool-choice"><input type="checkbox" name="tool" value="${esc(tool.name)}" ${configuredTools.includes(tool.name) ? 'checked' : ''}><span><code>${esc(tool.provider_tool || tool.name)}</code> · ${esc(value(tool.risk, 'risk not reported'))}<small>${esc(value(tool.description, 'No description reported'))}</small></span></label>`).join('') : '<div class="item-meta">Connect a server and configure actual tool names in its allowlist to discover tools here.</div>'}</fieldset>
             <div class="form-actions"><button class="button primary small-button" type="submit">Save capabilities</button><button class="text-button cancel-button" type="button">Cancel</button></div>
           </form>
           ${enabled ? '' : '<div class="item-meta">Disabled agents cannot run. Enable after reviewing the prompt and configuration.</div>'}
@@ -357,12 +356,15 @@
     target.innerHTML = '<div class="empty-inline">Loading run details…</div>';
     try {
       const run = await api(`/api/runs/${encodeURIComponent(id)}`);
-      const steps = Array.isArray(run.steps) ? run.steps : [];
+      const messages = Array.isArray(run.messages) ? run.messages : [];
+      const output = run.output ?? [...messages].reverse().find((message) => message?.role === 'assistant' && typeof message.content === 'string' && message.content.trim())?.content;
+      const steps = Array.isArray(run.steps) ? run.steps : messages.filter((message) => message?.role === 'assistant' || message?.role === 'tool').map((message) => ({role:message.role, name:message.name || undefined, content:message.content || ''}));
+      const stepCount = Array.isArray(run.steps) ? run.steps.length : Number(run.steps) || steps.length;
       target.innerHTML = `<div class="run-detail-head"><h3>Run ${esc(value(run.id, id))}</h3><button type="button" data-run-detail-close>Close</button></div>
-        <p class="item-meta">Status: ${esc(value(run.status, 'unknown'))} · Prompt version: ${esc(value(run.prompt_version, '—'))} · Tainted input: ${run.tainted ? 'yes' : 'no'}</p>
-        ${run.output !== undefined && run.output !== null ? `<div class="item-description"><strong>Output</strong><pre>${esc(pretty(run.output))}</pre></div>` : ''}
+        <p class="item-meta">Status: ${esc(value(run.status, 'unknown'))} · Prompt version: ${esc(value(run.prompt_version, run.config?.prompt_version ?? '—'))} · Tainted input: ${run.tainted ? 'yes' : 'no'}</p>
+        ${output !== undefined && output !== null ? `<div class="item-description"><strong>Output</strong><pre>${esc(pretty(output))}</pre></div>` : ''}
         ${run.error ? `<div class="item-description"><strong>Run error</strong><pre>${esc(run.error)}</pre></div>` : ''}
-        <details class="detail-box"><summary>Run steps (${steps.length})</summary><pre>${esc(pretty(steps))}</pre></details>`;
+        <details class="detail-box"><summary>Run steps (${stepCount})</summary><pre>${esc(pretty(steps))}</pre></details>`;
     } catch (error) { target.innerHTML = `<div class="empty-inline">Could not load run details. ${esc(error.message)}</div>`; }
   };
   const loadAutomations = async () => {
@@ -395,15 +397,16 @@
     protectedApiResponded = false;
     accessRejected = false;
     if (isLoopbackHost) {
+      q('#devices-unavailable').hidden = true;
       q('#access-settings').hidden = false;
       if (token) await loadAccess();
       else {
         q('#access-state').textContent = 'Locked';
-        q('#access-status').textContent = 'Owner access is locked. Run ownyourbot daemon start in the host terminal to open a one-time owner session here.';
+        q('#access-status').textContent = 'Owner access is locked. Run ownbot daemon start in the host terminal to open a one-time owner session here.';
         q('#create-pairing-button').disabled = true;
-        setLoading('#devices-list', 'Run ownyourbot daemon start on the host to view paired devices.');
+        setLoading('#devices-list', 'Run ownbot daemon start on the host to view paired devices.');
       }
-    }
+    } else q('#devices-unavailable').hidden = false;
     await loadStatus();
     if (!token) {
       ['#models-list','#mcp-list','#agents-list','#approvals-list','#runs-list','#automations-list','#audit-list'].forEach((selector) => setLoading(selector, 'Enter the local API token to load host data.'));
@@ -433,13 +436,17 @@
     q('#access-settings').hidden = false;
     try {
       const access = await api('/api/access');
+      q('#access-instructions').hidden = Boolean(access?.enabled);
+      q('#access-command').hidden = Boolean(access?.enabled);
       q('#access-state').textContent = access?.enabled ? 'Enabled' : 'Disabled';
       q('#access-status').innerHTML = access?.enabled
-        ? `<div>Available on your local network:</div>${list(access.urls).map((url) => `<code class="access-url">${esc(url)}</code>`).join('') || '<span>Address not reported.</span>'}${access.certificate_fingerprint ? `<details class="fingerprint-details"><summary>Device certificate details</summary><code>${esc(access.certificate_fingerprint)}</code></details>` : ''}`
-        : 'LAN access is off. Start the daemon with the command below to pair a device.';
+        ? `LAN access is on. Devices on this private network can pair with a one-time link.${access.certificate_fingerprint ? `<details class="fingerprint-details"><summary>Device certificate details</summary><code>${esc(access.certificate_fingerprint)}</code></details>` : ''}`
+        : 'LAN access is off. Start OwnBot on the host with the command below.';
       q('#create-pairing-button').disabled = !access?.enabled;
       await loadDevices();
     } catch (error) {
+      q('#access-instructions').hidden = false;
+      q('#access-command').hidden = false;
       q('#access-state').textContent = `Unavailable: ${error.message}`;
       q('#access-status').textContent = `LAN access could not be loaded: ${error.message}`;
       q('#create-pairing-button').disabled = true;
@@ -447,9 +454,28 @@
     }
   };
 
+  let lastSettingsCategory = 'models';
+  const settings = q('#settings-drawer');
+  const resetSettingsScroll = () => {
+    const reset = () => {
+      settings.scrollTop = 0;
+      q('.settings-panels').scrollTop = 0;
+    };
+    reset();
+    requestAnimationFrame(reset);
+  };
+  const focusSettingsControl = (control) => {
+    control.focus({preventScroll:true});
+    resetSettingsScroll();
+  };
+  settings.addEventListener('scroll', () => {
+    if (settings.scrollTop !== 0) settings.scrollTop = 0;
+  });
+
   if (pairingSecret) {
     pairPanel.hidden = false;
-    pairNameInput.focus();
+    pairNameInput.focus({preventScroll:true});
+    resetSettingsScroll();
   }
   pairForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -523,7 +549,7 @@
       const connected = await loadAll();
       if (!connected) {
         showMessage(accessRejected
-          ? 'The local owner session expired or was rejected. Run ownyourbot daemon start on the host to reconnect, or enter the owner API token below.'
+          ? 'The local owner session expired or was rejected. Run ownbot daemon start on the host to reconnect, or enter the owner API token below.'
           : 'Could not confirm access to the local API. Check the host and try again.');
         return;
       }
@@ -536,32 +562,87 @@
     const rail = q('#history-rail');
     const open = rail.classList.toggle('history-open');
     q('#history-toggle').setAttribute('aria-expanded', String(open));
+    q('#history-backdrop').hidden = !open;
+    if (open) q('#history-close').focus();
   });
-  q('#settings-toggle').addEventListener('click', () => {
-    const settings = q('#settings-drawer');
-    settings.open = !settings.open;
-    q('#settings-toggle').setAttribute('aria-expanded', String(settings.open));
-    if (settings.open) settings.scrollIntoView({behavior:'smooth', block:'start'});
+  const closeHistory = () => {
+    q('#history-rail').classList.remove('history-open');
+    q('#history-toggle').setAttribute('aria-expanded', 'false');
+    q('#history-backdrop').hidden = true;
+    q('#history-toggle').focus();
+  };
+  q('#history-close').addEventListener('click', closeHistory);
+  q('#history-backdrop').addEventListener('click', closeHistory);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !settings.open && q('#history-rail').classList.contains('history-open')) closeHistory();
   });
-  q('#settings-drawer').addEventListener('toggle', (event) => q('#settings-toggle').setAttribute('aria-expanded', String(event.currentTarget.open)));
-  q('#add-model-empty').addEventListener('click', (event) => {
-    q('#settings-drawer').open = true;
+  const selectSettingsCategory = (category) => {
+    lastSettingsCategory = category;
+    document.querySelectorAll('[data-settings-category]').forEach((button) => {
+      if (button.dataset.settingsCategory === category) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== category;
+    });
+    resetSettingsScroll();
+  };
+  const openSettings = (category = lastSettingsCategory) => {
+    selectSettingsCategory(category);
+    if (!settings.open) {
+      settings.showModal();
+      resetSettingsScroll();
+    }
     q('#settings-toggle').setAttribute('aria-expanded', 'true');
-    if (event.currentTarget.dataset.destination === 'agent') {
-      if (q('#agents-list').querySelector('[data-agent-id]')) q('#agents-list').scrollIntoView({behavior:'smooth', block:'start'});
-      else q('#new-agent-button').click();
-    } else q('#new-model-button').click();
-    q('#settings-drawer').scrollIntoView({behavior:'smooth', block:'start'});
+  };
+  q('#settings-toggle').addEventListener('click', () => {
+    if (settings.open) settings.close();
+    else openSettings();
   });
-  q('#new-model-button').addEventListener('click', () => { q('#model-form').hidden = false; q('#model-id').focus(); });
+  q('#settings-close').addEventListener('click', () => settings.close());
+  settings.addEventListener('close', () => q('#settings-toggle').setAttribute('aria-expanded', 'false'));
+  document.querySelectorAll('[data-settings-category]').forEach((button) => {
+    button.addEventListener('click', () => selectSettingsCategory(button.dataset.settingsCategory));
+  });
+  q('#token-recovery-button').addEventListener('click', () => {
+    openSettings('advanced');
+    tokenForm.hidden = false;
+    focusSettingsControl(tokenInput);
+  });
+  q('#add-model-empty').addEventListener('click', (event) => {
+    const destination = event.currentTarget.dataset.destination;
+    if (!token) {
+      if (isLoopbackHost) {
+        openSettings('advanced');
+        tokenForm.hidden = false;
+        focusSettingsControl(tokenInput);
+      } else openSettings('devices');
+      return;
+    }
+    if (destination === 'agent') {
+      openSettings('agents');
+      if (!q('#agents-list').querySelector('[data-agent-id]')) q('#new-agent-button').click();
+    } else {
+      openSettings('models');
+      q('#model-form').hidden = false;
+      focusSettingsControl(q('#model-id'));
+    }
+  });
+  q('#new-model-button').addEventListener('click', () => { q('#model-form').hidden = false; focusSettingsControl(q('#model-id')); });
   q('#model-provider').addEventListener('change', (event) => {
-    const baseURL = event.target.value === 'lm_studio' ? 'http://127.0.0.1:1234/v1' : 'http://127.0.0.1:11434/v1';
+    const endpoints = {
+      ollama:'http://127.0.0.1:11434/v1',
+      lm_studio:'http://127.0.0.1:1234/v1',
+      llama_cpp:'http://127.0.0.1:8080/v1',
+      vllm:'http://127.0.0.1:8000/v1',
+    };
+    const baseURL = endpoints[event.target.value] || endpoints.ollama;
     q('#model-endpoint').textContent = baseURL;
     q('#model-base-url').value = baseURL;
   });
-  q('#new-agent-button').addEventListener('click', () => { q('#agent-form').hidden = false; q('#agent-name').focus(); });
-  q('#new-mcp-button').addEventListener('click', () => { q('#mcp-form').hidden = false; q('#mcp-name').focus(); });
-  q('#new-automation-button').addEventListener('click', () => { q('#automation-form').hidden = false; q('#automation-name').focus(); });
+  q('#new-agent-button').addEventListener('click', () => { q('#agent-form').hidden = false; focusSettingsControl(q('#agent-name')); });
+  q('#new-mcp-button').addEventListener('click', () => { q('#mcp-form').hidden = false; focusSettingsControl(q('#mcp-name')); });
+  q('#new-automation-button').addEventListener('click', () => { q('#automation-form').hidden = false; focusSettingsControl(q('#automation-name')); });
   document.querySelectorAll('.cancel-button').forEach((button) => button.addEventListener('click', () => { button.closest('form').hidden = true; }));
 
   q('#agent-form').addEventListener('submit', async (event) => {
@@ -632,7 +713,7 @@
     button.disabled = true;
     const payload = {
       name: String(form.get('name') || '').trim(),
-      provider: String(form.get('provider')),
+      provider: ['llama_cpp', 'vllm'].includes(String(form.get('provider'))) ? 'openai_compatible' : String(form.get('provider')),
       model: String(form.get('model') || '').trim(),
       base_url: String(form.get('base_url')),
     };
@@ -883,7 +964,7 @@
     let bootstrapError = '';
     if (bootstrapTicket) {
       try { await redeemBootstrapTicket(); }
-      catch (error) { bootstrapError = `${error.message} Run ownyourbot daemon start again on the host with the same options to open a fresh owner session. No API token was requested or exposed in this link.`; }
+      catch (error) { bootstrapError = `${error.message} Run ownbot daemon start again on the host with the same options to open a fresh owner session. No API token was requested or exposed in this link.`; }
     }
     if (!pairingSecret) {
       await loadAll();

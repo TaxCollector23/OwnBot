@@ -102,16 +102,46 @@ const test = base.extend({
   },
   ownerPage: async ({page, daemon}, use) => {
     const browserErrors = [];
+    const httpErrors = [];
+    const requestFailures = [];
+    const expectedHTTP = new Set();
+    let allowExpiredOwnerSession = false;
+    let restartingDaemon = false;
     page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
     page.on('console', (message) => {
-      if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
+      if (message.type() !== 'error') return;
+      // Chromium also emits console errors for HTTP responses. Track those by
+      // response URL/status below so expected validation and auth responses
+      // stay separate from uncaught JavaScript and real console.error calls.
+      if (/^Failed to load resource:/.test(message.text())) return;
+      browserErrors.push(`console: ${message.text()}`);
     });
+    page.on('response', (response) => {
+      if (response.status() < 400) return;
+      const request = response.request();
+      const url = new URL(response.url());
+      const key = `${request.method()} ${url.pathname} ${response.status()}`;
+      const isExpected = expectedHTTP.delete(key) ||
+        (allowExpiredOwnerSession && url.origin === daemon.baseURL && url.pathname.startsWith('/api/') && response.status() === 401);
+      if (!isExpected) httpErrors.push(key);
+    });
+    page.on('requestfailed', (request) => {
+      const failure = request.failure()?.errorText || 'unknown';
+      const url = new URL(request.url());
+      if (restartingDaemon && url.origin === daemon.baseURL && failure.includes('ERR_CONNECTION_REFUSED')) return;
+      requestFailures.push(`${request.method()} ${url.pathname}: ${failure}`);
+    });
+    page.allowExpectedHTTPError = (method, pathname, status) => expectedHTTP.add(`${method} ${pathname} ${status}`);
+    page.allowExpiredOwnerSession = () => { allowExpiredOwnerSession = true; };
+    page.expectDaemonRestart = (expected) => { restartingDaemon = Boolean(expected); };
     const ticket = await freshBootstrap(daemon);
     await page.goto(`${daemon.baseURL}/dashboard#bootstrap=${encodeURIComponent(ticket)}`);
     await expect(page.locator('#token-panel')).toBeHidden();
     await expect(page.locator('#composer-empty')).toBeVisible();
     await use(page);
-    expect(browserErrors, 'browser console and uncaught page errors').toEqual([]);
+    expect(browserErrors, 'uncaught JavaScript and console.error messages').toEqual([]);
+    expect(httpErrors, 'unexpected HTTP error responses').toEqual([]);
+    expect(requestFailures, 'unexpected failed browser requests').toEqual([]);
   },
 });
 

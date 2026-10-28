@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f3f2ee">
-  <title>OwnYourBot — Local dashboard</title>
+  <title>ownbot — Local dashboard</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/dashboard.js" defer></script>
 </head>
@@ -12,36 +12,36 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="dash-header">
     <div class="wrap dash-header-inner">
-      <a class="logo" href="/">OwnYourBot</a>
+      <a class="logo" href="/">ownbot</a>
       <div class="header-actions"><button class="text-button forget-current-device" id="forget-current-device" type="button" hidden>Forget this browser</button><button class="button outline header-history-toggle" id="history-toggle" type="button" aria-controls="history-rail" aria-expanded="false">History</button><button class="button outline header-settings-toggle" id="settings-toggle" type="button" aria-controls="settings-drawer" aria-expanded="false">Settings</button><span id="connection-label" class="visually-hidden">Connecting</span></div>
     </div>
   </header>
   <main class="dashboard-shell" id="main">
     <div id="page-message" class="page-message" role="status" hidden></div>
-    <section id="token-panel" class="token-panel" hidden aria-labelledby="token-heading">
-      <div><h2 id="token-heading">Connect to this host</h2><p id="owner-token-copy">Run <code>ownyourbot daemon start</code> in the host terminal to open a one-time owner session here. It lasts 30 minutes. You can also enter the owner API token below.</p><p id="paired-token-copy" hidden>This device no longer has access. Pair it again from the host, or forget this browser.</p><p id="remote-token-copy" hidden>Use a device pairing link created by the owner on the host to connect this browser.</p><button class="button outline small-button" id="forget-device-button" type="button" hidden>Forget this browser</button></div>
-      <form id="token-form"><label for="api-token">Local API token</label><div class="token-input-row"><input id="api-token" name="token" type="password" autocomplete="off" spellcheck="false" required><button class="button primary small-button" type="submit">Connect</button></div></form>
+    <section id="token-panel" class="token-panel connection-notice" hidden aria-labelledby="token-heading">
+      <div><h2 id="token-heading">Connect to this host</h2><p id="owner-token-copy">Run <code>ownbot daemon start</code> in the host terminal to open a one-time owner session here. You can use Advanced recovery if you need to enter a token manually.</p><p id="paired-token-copy" hidden>This device no longer has access. Pair it again from the host, or forget this browser.</p><p id="remote-token-copy" hidden>Use a device pairing link created by the owner on the host to connect this browser.</p><button class="button outline small-button" id="token-recovery-button" type="button" hidden>Advanced recovery</button><button class="button outline small-button" id="forget-device-button" type="button" hidden>Forget this browser</button></div>
     </section>
     <section id="pair-panel" class="token-panel pair-panel" hidden aria-labelledby="pair-heading">
       <div><h2 id="pair-heading">Connect to your host</h2><p>This one-time link expires soon. Choose a name so you can recognize this browser later.</p></div>
       <form id="pair-form"><label for="pair-device-name">Device name</label><div class="token-input-row"><input id="pair-device-name" name="name" type="text" autocomplete="device-name" maxlength="80" required placeholder="e.g. Maya’s phone"><button class="button primary small-button" type="submit">Pair device</button></div></form>
     </section>
+    <button class="history-backdrop" id="history-backdrop" type="button" aria-label="Close history" hidden></button>
     <div class="workspace-grid">
       <aside id="history-rail" class="history-rail" aria-label="Run history">
-        <div class="history-heading"><h2>History</h2><button class="text-button" id="refresh-button" type="button">Refresh</button></div>
+        <div class="history-heading"><h2>History</h2><div><button class="text-button history-close" id="history-close" type="button">Close</button><button class="text-button" id="refresh-button" type="button">Refresh</button></div></div>
         <div id="runs-list" class="list-stack" aria-live="polite"><div class="empty-inline">Loading runs…</div></div>
       </aside>
       <div class="task-column">
         <section class="task-composer" aria-labelledby="task-heading">
-          <h1 id="task-heading">What should your agent do?</h1>
-          <form id="task-form" class="run-form" data-run-form="" hidden>
+          <h1 id="task-heading">New task</h1>
+          <form id="task-form" class="run-form" data-run-form="">
             <label for="task-agent">Agent</label>
             <select id="task-agent" name="agent" aria-label="Choose an agent" disabled><option value="">No enabled agents</option></select>
             <label class="visually-hidden" for="task-input">Task</label>
             <textarea id="task-input" name="input" rows="5" maxlength="64000" required placeholder="Describe the task…" disabled></textarea>
             <div class="composer-footer"><span id="composer-state" role="status">Add a local model to get started.</span><button class="button primary" id="start-task-button" type="submit" disabled>Run task</button></div>
           </form>
-          <div id="composer-empty" class="composer-empty" hidden><p>Add a local model before creating an agent run.</p><button class="button primary" id="add-model-empty" type="button">Add a local model</button></div>
+          <div id="composer-empty" class="composer-empty" hidden><button class="button primary" id="add-model-empty" type="button">Add a local model</button></div>
         </section>
         <section class="run-output" aria-label="Run result"><div id="run-detail" class="run-detail" aria-live="polite" hidden></div></section>
         <section id="approvals-panel" class="dash-panel approvals-panel" aria-labelledby="approvals-heading" hidden>
@@ -50,24 +50,35 @@
         </section>
       </div>
     </div>
-    <details class="settings-drawer" id="settings-drawer">
-      <summary>Settings</summary>
-      <div class="settings-content">
-<section id="access-settings" class="dash-panel access-panel" aria-labelledby="access-heading" hidden>
-      <div class="panel-heading"><h2 id="access-heading">LAN access</h2><span id="access-state" class="state-text">Checking</span></div>
-      <p class="section-note">Start the daemon with LAN access enabled. Pairing links grant this browser its own access and expire after one use.</p>
-      <div id="access-status" class="access-status" role="status" aria-live="polite">Checking LAN access…</div>
-      <div class="access-command"><span>Start on your local network</span><code>ownyourbot daemon start --lan</code></div>
-      <div class="access-actions"><button class="button primary" id="create-pairing-button" type="button" aria-describedby="access-status" disabled>Create pairing link</button></div>
-      <div id="pairing-link-panel" class="pairing-link-panel" hidden>
-        <label for="pairing-link">One-time pairing link</label>
-        <div class="pairing-link-row"><input id="pairing-link" type="text" readonly spellcheck="false"><button class="button outline" id="copy-pairing-link" type="button">Copy link</button></div>
-        <div id="pairing-link-meta" class="item-meta"></div>
-        <div id="pairing-fingerprint-meta"></div>
-      </div>
-      <div class="devices-heading"><h3>Paired devices</h3><button class="text-button" id="refresh-devices-button" type="button">Refresh</button></div>
-      <div id="devices-list" class="list-stack" aria-live="polite"><div class="empty-inline">Loading devices…</div></div>
-    </section>
+    <dialog class="settings-dialog" id="settings-drawer" aria-labelledby="settings-heading">
+      <div class="settings-dialog-header"><div><h2 id="settings-heading">Settings</h2><p>Configure the models, agents, and connections your runs use.</p></div><button class="button outline settings-close" id="settings-close" type="button">Close</button></div>
+      <div class="settings-layout">
+        <nav class="settings-nav" aria-label="Settings categories">
+          <button type="button" data-settings-category="models" aria-current="page">Models</button>
+          <button type="button" data-settings-category="agents">Agents</button>
+          <button type="button" data-settings-category="connections">Connections</button>
+          <button type="button" data-settings-category="devices">Devices</button>
+          <button type="button" data-settings-category="automations">Automations</button>
+          <button type="button" data-settings-category="advanced">Advanced</button>
+        </nav>
+        <div class="settings-panels">
+          <section class="settings-category" data-settings-panel="models" aria-labelledby="models-heading">
+      <section class="dash-panel models-panel" aria-labelledby="models-heading">
+        <div class="panel-heading"><h2 id="models-heading">Local models</h2><button class="text-button" id="new-model-button" type="button">+ Add model</button></div>
+        <p class="section-note">Add an Ollama or LM Studio model, then run a capability probe before using it in an agent.</p>
+        <div id="models-list" class="model-list" aria-live="polite"><div class="empty-inline">Loading model configurations…</div></div>
+        <form id="model-form" class="inline-form model-form" hidden>
+          <div class="model-form-grid">
+          <div><label for="model-provider">Local provider</label><select id="model-provider" name="provider"><option value="ollama">Ollama</option><option value="lm_studio">LM Studio</option><option value="llama_cpp">llama.cpp</option><option value="vllm">vLLM</option></select></div>
+            <div><label for="model-id">Model ID</label><input id="model-id" name="model" required maxlength="200" placeholder="e.g. qwen3:8b"></div>
+            <div><label for="model-name">Display name (optional)</label><input id="model-name" name="name" maxlength="100" placeholder="Provider and model by default"></div>
+            <div class="endpoint-field"><span class="field-caption">Local endpoint</span><code id="model-endpoint">http://127.0.0.1:11434/v1</code><input id="model-base-url" name="base_url" type="hidden" value="http://127.0.0.1:11434/v1"></div>
+          </div>
+          <div class="form-actions"><button class="button primary small-button" type="submit">Save model</button><button class="text-button cancel-button" type="button">Cancel</button></div>
+        </form>
+      </section>
+          </section>
+          <section class="settings-category" data-settings-panel="agents" aria-labelledby="agents-heading" hidden>
 <section class="dash-panel agents-panel" aria-labelledby="agents-heading">
         <div class="panel-heading"><h2 id="agents-heading">Agents</h2><button class="text-button" id="new-agent-button" type="button">+ New agent</button></div>
       <div id="agents-list" class="list-stack"><div class="empty-inline">Loading agents…</div></div>
@@ -77,47 +88,55 @@
         <div class="form-actions"><button class="button primary small-button" type="submit">Create disabled agent</button><button class="text-button cancel-button" type="button">Cancel</button></div>
       </form>
     </section>
-      <p class="section-note">Set up the services your agents can use. Requests sent to those services leave this computer.</p>
-      <section class="dash-panel search-panel" aria-labelledby="search-heading">
-        <div class="panel-heading"><h2 id="search-heading">SearXNG</h2><span id="search-state" class="state-text">Checking</span></div>
-        <p class="section-note">Search queries go to the endpoint below. Only agents with web search enabled and the <code>web_search</code> tool allowed can use it.</p>
-        <div id="search-status" class="empty-inline" aria-live="polite">Loading search configuration…</div>
-        <form id="search-form" class="inline-form search-form" hidden>
-          <label for="search-endpoint">SearXNG endpoint</label><input id="search-endpoint" name="endpoint" type="url" required maxlength="2048" placeholder="https://search.example/">
-          <div class="form-actions"><button class="button primary small-button" type="submit">Save endpoint</button></div>
-          <div class="item-meta">Use HTTPS or a loopback HTTP address. This setting can be saved once.</div>
-        </form>
-      </section>
-      <section class="dash-panel models-panel" aria-labelledby="models-heading">
-        <div class="panel-heading"><h2 id="models-heading">Local models</h2><button class="text-button" id="new-model-button" type="button">+ Add model</button></div>
-        <p class="section-note">Add an Ollama or LM Studio model, then run a capability probe before using it in an agent.</p>
-        <div id="models-list" class="model-list" aria-live="polite"><div class="empty-inline">Loading model configurations…</div></div>
-        <form id="model-form" class="inline-form model-form" hidden>
-          <div class="model-form-grid">
-            <div><label for="model-provider">Provider</label><select id="model-provider" name="provider"><option value="ollama">Ollama</option><option value="lm_studio">LM Studio</option></select></div>
-            <div><label for="model-id">Model ID</label><input id="model-id" name="model" required maxlength="200" placeholder="e.g. qwen3:8b"></div>
-            <div><label for="model-name">Display name (optional)</label><input id="model-name" name="name" maxlength="100" placeholder="Provider and model by default"></div>
-            <div class="endpoint-field"><span class="field-caption">Local endpoint</span><code id="model-endpoint">http://127.0.0.1:11434/v1</code><input id="model-base-url" name="base_url" type="hidden" value="http://127.0.0.1:11434/v1"></div>
-          </div>
-          <div class="form-actions"><button class="button primary small-button" type="submit">Save model</button><button class="text-button cancel-button" type="button">Cancel</button></div>
-        </form>
-      </section>
-      <section class="dash-panel mcp-panel" aria-labelledby="mcp-heading">
-        <div class="panel-heading"><h2 id="mcp-heading">Server connections</h2><button class="text-button" id="new-mcp-button" type="button">+ Add HTTP server</button></div>
-        <p class="section-note">Connect a server only when you choose Connect. OAuth is unavailable; servers that require sign-in will report that state. Stdio connections are not supported by this daemon.</p>
-        <div id="mcp-list" class="mcp-list" aria-live="polite"><div class="empty-inline">Loading servers…</div></div>
-        <form id="mcp-form" class="inline-form model-form" hidden>
-          <div class="model-form-grid">
-            <div><label for="mcp-name">Server name</label><input id="mcp-name" name="name" required maxlength="100" placeholder="e.g. Local notes"></div>
-            <div><label for="mcp-endpoint">HTTP MCP endpoint</label><input id="mcp-endpoint" name="endpoint" type="url" required maxlength="2048" placeholder="https://host.example/mcp"></div>
-            <div><label for="mcp-allowed-tools">Allowed tool names (comma separated)</label><textarea id="mcp-allowed-tools" name="allowed_tools" rows="3" maxlength="4000" placeholder="SearchNotes, CreateNote"></textarea><span class="field-caption">Use exact names from server documentation.</span></div>
-            <div><label for="mcp-read-tools">Read tool names (comma separated)</label><textarea id="mcp-read-tools" name="read_tools" rows="3" maxlength="4000" placeholder="SearchNotes"></textarea></div>
-            <div><label for="mcp-write-tools">Write tool names (comma separated)</label><textarea id="mcp-write-tools" name="write_tools" rows="3" maxlength="4000" placeholder="CreateNote"></textarea><span class="field-caption">Write calls still need approval.</span></div>
-          </div>
-          <div class="form-actions"><button class="button primary small-button" type="submit">Save disabled config</button><button class="text-button cancel-button" type="button">Cancel</button></div>
-        </form>
-      </section>
-      <div class="dashboard-columns settings-columns">
+          </section>
+          <section class="settings-category" data-settings-panel="connections" aria-labelledby="connections-heading" hidden>
+            <h3 id="connections-heading">Connections</h3>
+            <p class="section-note">Only requests to services you connect leave this computer.</p>
+            <section class="dash-panel search-panel" aria-labelledby="search-heading">
+              <div class="panel-heading"><h2 id="search-heading">SearXNG</h2><span id="search-state" class="state-text">Checking</span></div>
+              <p class="section-note">Search queries go to the endpoint below. Only agents with web search enabled and the <code>web_search</code> tool allowed can use it.</p>
+              <div id="search-status" class="empty-inline" aria-live="polite">Loading search configuration…</div>
+              <form id="search-form" class="inline-form search-form" hidden>
+                <label for="search-endpoint">SearXNG endpoint</label><input id="search-endpoint" name="endpoint" type="url" required maxlength="2048" placeholder="https://search.example/">
+                <div class="form-actions"><button class="button primary small-button" type="submit">Save endpoint</button></div>
+                <div class="item-meta">Use HTTPS or a loopback HTTP address. This setting can be saved once.</div>
+              </form>
+            </section>
+            <section class="dash-panel mcp-panel" aria-labelledby="mcp-heading">
+              <div class="panel-heading"><h2 id="mcp-heading">Server connections</h2><button class="text-button" id="new-mcp-button" type="button">+ Add HTTP server</button></div>
+              <p class="section-note">Connect a server only when you choose Connect. OAuth is unavailable; servers that require sign-in will report that state. Stdio connections are not supported by this daemon.</p>
+              <div id="mcp-list" class="mcp-list" aria-live="polite"><div class="empty-inline">Loading servers…</div></div>
+              <form id="mcp-form" class="inline-form model-form" hidden>
+                <div class="model-form-grid">
+                  <div><label for="mcp-name">Server name</label><input id="mcp-name" name="name" required maxlength="100" placeholder="e.g. Local notes"></div>
+                  <div><label for="mcp-endpoint">HTTP MCP endpoint</label><input id="mcp-endpoint" name="endpoint" type="url" required maxlength="2048" placeholder="https://host.example/mcp"></div>
+                  <div><label for="mcp-allowed-tools">Allowed tool names (comma separated)</label><textarea id="mcp-allowed-tools" name="allowed_tools" rows="3" maxlength="4000" placeholder="SearchNotes, CreateNote"></textarea><span class="field-caption">Use exact names from server documentation.</span></div>
+                  <div><label for="mcp-read-tools">Read tool names (comma separated)</label><textarea id="mcp-read-tools" name="read_tools" rows="3" maxlength="4000" placeholder="SearchNotes"></textarea></div>
+                  <div><label for="mcp-write-tools">Write tool names (comma separated)</label><textarea id="mcp-write-tools" name="write_tools" rows="3" maxlength="4000" placeholder="CreateNote"></textarea><span class="field-caption">Write calls still need approval.</span></div>
+                </div>
+                <div class="form-actions"><button class="button primary small-button" type="submit">Save disabled config</button><button class="text-button cancel-button" type="button">Cancel</button></div>
+              </form>
+            </section>
+          </section>
+          <section class="settings-category" data-settings-panel="devices" aria-labelledby="access-heading" hidden>
+            <p id="devices-unavailable">Device pairing is available from the owner’s local dashboard.</p>
+            <section id="access-settings" class="dash-panel access-panel" aria-labelledby="access-heading" hidden>
+      <div class="panel-heading"><h2 id="access-heading">Pair a device</h2><span id="access-state" class="state-text visually-hidden">Checking</span></div>
+      <p class="section-note" id="access-instructions">Start OwnBot with LAN access on the same private network, then create a one-time link.</p>
+      <div id="access-status" class="access-status" role="status" aria-live="polite">Checking LAN access…</div>
+      <div class="access-command" id="access-command"><span>On the host, run</span><code>ownbot daemon start --lan</code></div>
+      <div class="access-actions"><button class="button primary" id="create-pairing-button" type="button" aria-describedby="access-status" disabled>Create one-time link</button></div>
+      <div id="pairing-link-panel" class="pairing-link-panel" hidden>
+        <label for="pairing-link">One-time pairing link</label>
+        <div class="pairing-link-row"><input id="pairing-link" type="text" readonly spellcheck="false"><button class="button outline" id="copy-pairing-link" type="button">Copy link</button></div>
+        <div id="pairing-link-meta" class="item-meta"></div>
+        <div id="pairing-fingerprint-meta"></div>
+      </div>
+      <div class="devices-heading"><h3>Paired devices</h3><button class="text-button" id="refresh-devices-button" type="button">Refresh</button></div>
+      <div id="devices-list" class="list-stack" aria-live="polite"><div class="empty-inline">Loading devices…</div></div>
+            </section>
+          </section>
+          <section class="settings-category" data-settings-panel="automations" aria-labelledby="automations-heading" hidden>
         <section class="dash-panel" aria-labelledby="automations-heading">
           <div class="panel-heading"><h2 id="automations-heading">Automations</h2><button class="text-button" id="new-automation-button" type="button">+ Add automation</button></div>
           <div id="automations-list" class="list-stack"><div class="empty-inline">Loading automations…</div></div>
@@ -132,14 +151,20 @@
             <div class="form-actions"><button class="button primary small-button" type="submit">Save and enable</button><button class="text-button cancel-button" type="button">Cancel</button></div>
           </form>
         </section>
+          </section>
+          <section class="settings-category" data-settings-panel="advanced" aria-labelledby="advanced-heading" hidden>
+            <h3 id="advanced-heading">Advanced recovery and activity</h3>
+            <p class="section-note">Use token access only if the one-time owner link cannot be used.</p>
+            <form id="token-form" class="inline-form token-recovery-form" hidden><label for="api-token">Local API token</label><div class="token-input-row"><input id="api-token" name="token" type="password" autocomplete="off" spellcheck="false" required><button class="button primary small-button" type="submit">Connect</button></div></form>
         <section class="dash-panel" aria-labelledby="audit-heading">
           <div class="panel-heading"><h2 id="audit-heading">Recent events</h2></div>
           <div id="audit-list" class="list-stack"><div class="empty-inline">Loading activity…</div></div>
         </section>
+            </section>
+          </section>
+        </div>
       </div>
-      </div>
-    </details>
-    <footer class="dash-footer"><span>Runs on this computer.</span><a href="/">Project overview ↗</a></footer>
+    </dialog>
   </main>
 </body>
 </html>

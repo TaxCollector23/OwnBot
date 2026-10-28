@@ -56,7 +56,7 @@ function harness({hostname = '192.168.1.18', hash = '', storageSeed = {}, failPa
     return {ok:status >= 200 && status < 300, status, async text(){return data === null ? '' : JSON.stringify(data);}};
   }
   const window = {location, history};
-  vm.runInNewContext(source, {document, sessionStorage, fetch, Headers, URLSearchParams, window, navigator:{clipboard:{writeText:async()=>{}}}, console});
+  vm.runInNewContext(source, {document, sessionStorage, fetch, Headers, URLSearchParams, window, navigator:{clipboard:{writeText:async()=>{}}}, requestAnimationFrame:(callback)=>callback(), console});
   return {element, storage, requests, location, history};
 }
 

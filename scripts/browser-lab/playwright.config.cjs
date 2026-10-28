@@ -12,6 +12,7 @@ module.exports = defineConfig({
   outputDir: path.join(__dirname, 'artifacts/browser-results'),
   use: {
     browserName: 'chromium',
+    launchOptions: process.env.OWNBOT_CHROMIUM_EXECUTABLE ? {executablePath: process.env.OWNBOT_CHROMIUM_EXECUTABLE} : {},
     trace: 'off',
     screenshot: 'off',
     video: 'off',

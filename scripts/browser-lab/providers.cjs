@@ -66,7 +66,7 @@ const server = http.createServer(async (request, response) => {
     }
     let result;
     if (method === 'initialize') {
-      result = {protocolVersion:'2025-11-25', capabilities:{tools:{}}, serverInfo:{name:'OwnYourBot browser fixture', version:'1'}};
+      result = {protocolVersion:'2025-11-25', capabilities:{tools:{}}, serverInfo:{name:'ownbot browser fixture', version:'1'}};
     } else if (method === 'tools/list') {
       result = {tools:[{name:'create_note', description:'Create a note after approval', inputSchema:{type:'object', properties:{title:{type:'string'}}, required:['title'], additionalProperties:false}}]};
     } else if (method === 'tools/call') {
