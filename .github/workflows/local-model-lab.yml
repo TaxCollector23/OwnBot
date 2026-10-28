@@ -1,0 +1,116 @@
+name: Local model capability lab
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/local-model-lab.yml'
+      - 'scripts/local-model-lab/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build OwnYourBot
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/ownbotd" ./cmd/ownbotd
+          go build -trimpath -o "$RUNNER_TEMP/ownyourbot" ./cmd/ownbot
+      - name: Install Ollama and pull the pinned model family
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/ollama.pid"
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/version && break || sleep 1; done
+          ollama pull qwen3:1.7b
+          python3 - <<'PY'
+          import json, pathlib
+          p = pathlib.Path.home()/'.ollama/models/manifests/registry.ollama.ai/library/qwen3/1.7b'
+          data=json.loads(p.read_text())
+          model=next(layer for layer in data['layers'] if layer['mediaType'].endswith('.model'))
+          with open('/tmp/model.env','w') as out:
+              print('MODEL_DIGEST=' + model['digest'], file=out)
+              print('MODEL_HASH=' + model['digest'].split(':')[-1], file=out)
+          print('MODEL_QUANT=Q4_K_M', file=open('/tmp/model.env','a'))
+          PY
+          echo "RUNTIME_VERSION=$(ollama --version | sed 's/.*version is //')" >> "$GITHUB_ENV"
+          echo "RUNTIME_PID=$(cat "$RUNNER_TEMP/ollama.pid")" >> "$GITHUB_ENV"
+          cat /tmp/model.env >> "$GITHUB_ENV"
+      - name: Probe Ollama model through OwnYourBot
+        env:
+          OWNBOT: ${{ runner.temp }}/ownyourbot
+          OWNBOTD: ${{ runner.temp }}/ownbotd
+          RUNTIME_VERSION: ${{ env.RUNTIME_VERSION }}
+          MODEL_DIGEST: ${{ env.MODEL_DIGEST }}
+          MODEL_HASH: ${{ env.MODEL_HASH }}
+          MODEL_QUANT: ${{ env.MODEL_QUANT }}
+        run: python3 scripts/local-model-lab/run.py ollama qwen3:1.7b http://127.0.0.1:11434/v1 "$RUNNER_TEMP/model-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ollama-model-evidence
+          path: ${{ runner.temp }}/model-evidence/ollama.json
+
+  llama-cpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build OwnYourBot
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/ownbotd" ./cmd/ownbotd
+          go build -trimpath -o "$RUNNER_TEMP/ownyourbot" ./cmd/ownbot
+      - name: Install llama.cpp CPU server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -DGGML_NATIVE=OFF -DGGML_CURL=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+          cmake --build "$RUNNER_TEMP/llama.cpp/build" --config Release -j2 --target llama-server
+          "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" --version
+          echo "RUNTIME_VERSION=$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Start llama.cpp with the official Qwen GGUF and probe
+        env:
+          OWNBOT: ${{ runner.temp }}/ownyourbot
+          OWNBOTD: ${{ runner.temp }}/ownbotd
+          RUNTIME_VERSION: ${{ env.RUNTIME_VERSION }}
+          MODEL_DIGEST: Qwen/Qwen3-1.7B-GGUF:Q8_0
+          MODEL_QUANT: Q8_0
+        run: |
+          "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" --host 127.0.0.1 --port 8080 -hf Qwen/Qwen3-1.7B-GGUF:Q8_0 --ctx-size 2048 --n-gpu-layers 0 > "$RUNNER_TEMP/llama.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/llama.pid"
+          echo "RUNTIME_PID=$(cat "$RUNNER_TEMP/llama.pid")" >> "$GITHUB_ENV"
+          for i in $(seq 1 900); do curl -fsS http://127.0.0.1:8080/health >/dev/null && break || sleep 1; done
+          model_path=$(find "$HOME/.cache" -type f -name 'Qwen3-1.7B-Q8_0.gguf' -print -quit)
+          if [ -z "$model_path" ]; then model_path=$(find "$HOME/.cache" -type f -name '*.gguf' -print -quit); fi
+          test -n "$model_path"
+          export MODEL_HASH=$(sha256sum "$model_path" | cut -d' ' -f1)
+          export RUNTIME_PID=$(cat "$RUNNER_TEMP/llama.pid")
+          export RUNTIME_VERSION=$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)
+          echo "MODEL_HASH=$MODEL_HASH" >> "$GITHUB_ENV"
+          python3 scripts/local-model-lab/run.py llama.cpp Qwen/Qwen3-1.7B-GGUF:Q8_0 http://127.0.0.1:8080/v1 "$RUNNER_TEMP/model-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: llama-cpp-model-evidence
+          path: ${{ runner.temp }}/model-evidence/llama-cpp.json
