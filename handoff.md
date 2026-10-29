@@ -28,3 +28,5 @@ Verification for application commit `e644335`: native Linux/macOS/Windows CI pas
 ## Both surfaces: SSH approvals and searchable docs
 
 Added exact-ID CLI approval review/decisions and a read-only request lookup endpoint, plus browser-local docs filtering with Escape/Clear and hash-history recovery. Manual runs resume separately; scheduled automations may continue after explicit approval. See `docs/approvals.md` and the latest follow-up in `docs/qa-2026-10-29.md`. No model installation or new permission grants.
+
+Follow-up application commit `90c7d59` passed native CI (60 Linux/macOS workflow checks, 59 Windows), 18 dashboard browser cases, and the isolated LAN lab. Searchable docs passed 222 local and 223 hosted assertions. Vercel and Pages content matched the source; full details and remaining boundaries are in the QA report.

@@ -34,3 +34,5 @@ The [2026-10-29 QA report](docs/qa-2026-10-29.md) records the full Go suite, das
 - Publish signed artifacts and the `ownbot` npm package only after the applicable release checks pass.
 
 Automated tests and the isolated LAN lab do not establish physical-device, target-hardware, or public-release readiness. Check the [LAN guide](docs/lan-access.md) and [TODO](TODO.md) for details.
+
+The follow-up approval CLI and searchable-docs verification is recorded in the same report: 60 local CLI/daemon checks, native CI on all three desktop operating systems, 222 local website assertions, and 223 production assertions passed. Linux dashboard CI passed all 18 cases. Native timeline pointer seeking was not established in the local headless browser; keyboard/API seeking and playback were checked.
