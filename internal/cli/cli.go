@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -1463,16 +1464,22 @@ func runSearch(args []string, stdout, stderr io.Writer) error {
 	return writeJSON(stdout, config)
 }
 
+const auditExportPageLimit = 500
+
 func runAudit(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownbot audit export [--out FILE] [--url URL] [--data-dir DIR]")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot inspect audit export [--run RUN_ID] [--event EVENT_TYPE] [--out FILE] [--url URL] [--data-dir DIR]")
+		_, _ = fmt.Fprintln(stdout, "Exports matching stored audit events as newest-first JSONL. Tool-call arguments and results are redacted; metadata may include caller-supplied idempotency keys. Pagination uses an ID cursor; events appended during an export are included on the next export.")
+		_, _ = fmt.Fprintln(stdout, "--out replaces the destination only after every page succeeds, using a temporary file (mode 0600 on Unix). Without --out, stdout may contain partial output if a later page fails.")
 		return nil
 	}
 	if args[0] != "export" {
-		return fmt.Errorf("unknown audit command %q; run `ownbot audit --help`", args[0])
+		return fmt.Errorf("unknown audit command %q; run `ownbot inspect audit --help`", args[0])
 	}
 	fs := flag.NewFlagSet("audit export", flag.ContinueOnError)
 	apiURL, dataDir := commonFlags(fs)
+	runID := fs.String("run", "", "filter by exact run ID")
+	eventType := fs.String("event", "", "filter by exact event type")
 	outputPath := fs.String("out", "", "write JSONL to this file instead of stdout")
 	if err := parseFlags(fs, args[1:], stderr); err != nil {
 		return err
@@ -1480,28 +1487,118 @@ func runAudit(args []string, stdout, stderr io.Writer) error {
 	if fs.NArg() != 0 {
 		return errors.New("audit export does not accept positional arguments")
 	}
+	var emptyFilter bool
+	fs.Visit(func(value *flag.Flag) {
+		if (value.Name == "run" && *runID == "") || (value.Name == "event" && *eventType == "") {
+			emptyFilter = true
+		}
+	})
+	if emptyFilter {
+		return errors.New("audit filters cannot be empty")
+	}
 	client, err := clientFor(*apiURL, *dataDir)
 	if err != nil {
 		return err
 	}
-	var events []json.RawMessage
-	if err := client.Do(backgroundContext(), "GET", "/api/audit", nil, &events); err != nil {
+	if _, err := fmt.Fprintln(stderr, "Exporting stored audit events newest first; tool-call arguments and results are redacted, but metadata may include caller-supplied idempotency keys."); err != nil {
 		return err
 	}
-	var dst io.Writer = stdout
-	var file *os.File
-	if *outputPath != "" {
-		file, err = os.OpenFile(filepath.Clean(*outputPath), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-		if err != nil {
-			return errors.New("could not open audit export file")
+	export := func(dst io.Writer) error {
+		return exportAuditPages(client, dst, *runID, *eventType)
+	}
+	if *outputPath == "" {
+		return export(stdout)
+	}
+	return writeAuditExportFile(*outputPath, export)
+}
+
+func exportAuditPages(client *Client, dst io.Writer, runID, eventType string) error {
+	var beforeID int64
+	for {
+		query := url.Values{}
+		query.Set("limit", strconv.Itoa(auditExportPageLimit))
+		if beforeID != 0 {
+			query.Set("before_id", strconv.FormatInt(beforeID, 10))
 		}
-		defer file.Close()
-		dst = file
+		if runID != "" {
+			query.Set("run_id", runID)
+		}
+		if eventType != "" {
+			query.Set("event_type", eventType)
+		}
+
+		var events []json.RawMessage
+		path := "/api/audit?" + query.Encode()
+		if err := client.Do(backgroundContext(), http.MethodGet, path, nil, &events); err != nil {
+			return fmt.Errorf("could not fetch audit events: %w", err)
+		}
+		if events == nil {
+			return errors.New("audit API returned an invalid page")
+		}
+		if len(events) > auditExportPageLimit {
+			return errors.New("audit API returned more events than the requested page size")
+		}
+		var lastID int64
+		for i, item := range events {
+			var metadata struct {
+				ID        int64  `json:"id"`
+				RunID     string `json:"run_id"`
+				EventType string `json:"event_type"`
+			}
+			if err := json.Unmarshal(item, &metadata); err != nil || metadata.ID <= 0 {
+				return errors.New("audit API returned an event without a valid ID")
+			}
+			if (i > 0 && metadata.ID >= lastID) || (beforeID != 0 && metadata.ID >= beforeID) {
+				return errors.New("audit API returned events outside the requested cursor order")
+			}
+			if (runID != "" && metadata.RunID != runID) || (eventType != "" && metadata.EventType != eventType) {
+				return errors.New("audit API returned an event outside the requested filter; update or restart the daemon and retry")
+			}
+			lastID = metadata.ID
+		}
+		if err := writeJSONLines(dst, events); err != nil {
+			return fmt.Errorf("could not write audit export: %w", err)
+		}
+		if len(events) < auditExportPageLimit {
+			return nil
+		}
+		beforeID = lastID
 	}
-	if _, err := fmt.Fprintln(stderr, "Exporting audit events available from the daemon; tool-call audit history is not implemented."); err != nil {
+}
+
+func writeAuditExportFile(outputPath string, export func(io.Writer) error) error {
+	cleanPath := filepath.Clean(outputPath)
+	directory := filepath.Dir(cleanPath)
+	baseName := filepath.Base(cleanPath)
+	temp, err := os.CreateTemp(directory, "."+baseName+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("could not create audit export file: %w", err)
+	}
+	tempPath := temp.Name()
+	committed := false
+	defer func() {
+		_ = temp.Close()
+		if !committed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if err := temp.Chmod(0600); err != nil {
+		return fmt.Errorf("could not secure audit export file: %w", err)
+	}
+	if err := export(temp); err != nil {
 		return err
 	}
-	return writeJSONLines(dst, events)
+	if err := temp.Sync(); err != nil {
+		return fmt.Errorf("could not sync audit export file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("could not close audit export file: %w", err)
+	}
+	if err := os.Rename(tempPath, cleanPath); err != nil {
+		return fmt.Errorf("could not replace audit export file: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 func runLogs(args []string, stdout, stderr io.Writer) error {

@@ -381,27 +381,36 @@ type Agent struct {
 	Prompt         string   `json:"prompt,omitempty"`
 }
 
+type agentListItem struct {
+	Agent
+	MCPServers []string `json:"mcp_servers"`
+}
+
 func (s *Server) agents(w http.ResponseWriter, r *http.Request) {
-	rows, e := s.db.Query(`SELECT a.id,a.name,a.model,a.enabled,a.web_search,a.mcp_enabled,a.tools_json,a.max_steps,a.max_tokens,a.timeout_seconds,a.created_at,a.updated_at,coalesce((SELECT max(version)FROM prompt_versions WHERE agent_id=a.id),0),coalesce((SELECT prompt FROM prompt_versions WHERE agent_id=a.id ORDER BY version DESC LIMIT 1),'')FROM agents a ORDER BY a.created_at DESC`)
+	rows, e := s.db.Query(`SELECT a.id,a.name,a.model,a.enabled,a.web_search,a.mcp_enabled,a.tools_json,a.max_steps,a.max_tokens,a.timeout_seconds,a.created_at,a.updated_at,coalesce((SELECT max(version)FROM prompt_versions WHERE agent_id=a.id),0),coalesce((SELECT prompt FROM prompt_versions WHERE agent_id=a.id ORDER BY version DESC LIMIT 1),''),coalesce(settings.mcp_servers_json,'[]') FROM agents a LEFT JOIN agent_settings settings ON settings.agent_id=a.id ORDER BY a.created_at DESC`)
 	if e != nil {
 		errJSON(w, 500, e.Error())
 		return
 	}
 	defer rows.Close()
-	out := []Agent{}
+	out := []agentListItem{}
 	for rows.Next() {
-		var a Agent
+		var item agentListItem
 		var en, ws, mc int
-		var tools string
-		if e = rows.Scan(&a.ID, &a.Name, &a.Model, &en, &ws, &mc, &tools, &a.MaxSteps, &a.MaxTokens, &a.TimeoutSeconds, &a.CreatedAt, &a.UpdatedAt, &a.PromptVersion, &a.Prompt); e != nil {
+		var tools, mcpServers string
+		if e = rows.Scan(&item.ID, &item.Name, &item.Model, &en, &ws, &mc, &tools, &item.MaxSteps, &item.MaxTokens, &item.TimeoutSeconds, &item.CreatedAt, &item.UpdatedAt, &item.PromptVersion, &item.Prompt, &mcpServers); e != nil {
 			errJSON(w, 500, e.Error())
 			return
 		}
-		a.Enabled = en != 0
-		a.WebSearch = ws != 0
-		a.MCPEnabled = mc != 0
-		_ = json.Unmarshal([]byte(tools), &a.Tools)
-		out = append(out, a)
+		item.Enabled = en != 0
+		item.WebSearch = ws != 0
+		item.MCPEnabled = mc != 0
+		_ = json.Unmarshal([]byte(tools), &item.Tools)
+		if e = json.Unmarshal([]byte(mcpServers), &item.MCPServers); e != nil {
+			errJSON(w, 500, "could not read agent MCP allowlist")
+			return
+		}
+		out = append(out, item)
 	}
 	write(w, 200, out)
 }
@@ -632,25 +641,7 @@ func (s *Server) decide(approve bool) http.HandlerFunc {
 	}
 }
 func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
-	rows, e := s.db.Query(`SELECT id,run_id,agent_id,event_type,actor,details_json,created_at FROM audit ORDER BY id DESC LIMIT 500`)
-	if e != nil {
-		errJSON(w, 500, e.Error())
-		return
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		var id int
-		var run, agent, kind, actor, details, at string
-		if e = rows.Scan(&id, &run, &agent, &kind, &actor, &details, &at); e != nil {
-			errJSON(w, 500, e.Error())
-			return
-		}
-		var d any
-		_ = json.Unmarshal([]byte(details), &d)
-		out = append(out, map[string]any{"id": id, "run_id": run, "agent_id": agent, "event_type": kind, "actor": actor, "details": d, "created_at": at})
-	}
-	write(w, 200, out)
+	s.auditEvents(w, r)
 }
 
 type Automation struct {

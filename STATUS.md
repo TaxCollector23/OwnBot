@@ -1,10 +1,12 @@
 # Release status
 
-Updated 2026-10-28. `ownbot` is still in development. Do not treat this checkout as a signed or production release. The renamed `ownbot` package is not yet available from npm, and the documentation is live on GitHub Pages.
+Updated 2026-10-29. `ownbot` is still in development. Do not treat this checkout as a signed or production release. The renamed `ownbot` package is not yet available from npm, and the documentation is live on GitHub Pages.
 
 ## Current scope
 
 - The CLI supports local model detection and capability probing, daemon controls, and a local dashboard.
+- `ownbot inspect check` reports saved setup and permission metadata without inference, provider calls, or configuration changes.
+- `ownbot inspect audit export` exports complete stored history with exact run/event filters and safe output-file replacement. Tool-call argument/result bodies are redacted; other metadata can contain private information. See the [inspection guide](docs/inspect-and-audit.md).
 - Setup detects installed models from Ollama, LM Studio, llama.cpp, and vLLM. It does not download models or configure hosted provider keys.
 - LAN mode provides HTTPS pairing for devices on the host's private network. It does not provide cellular or public internet access.
 - macOS and Linux user-level service management is implemented; verify it on the target machine before relying on it for unattended operation.
@@ -16,6 +18,10 @@ Updated 2026-10-28. `ownbot` is still in development. Do not treat this checkout
 - A disposable local npm tarball install built both binaries and verified SSH owner-link redemption, replay rejection, daemon inspection, and shutdown with a service-manager stub. This did not install a real login service.
 - Ollama and llama.cpp each passed all four real capability checks on a hosted CPU runner; see [measured model evidence](docs/hardware.md). This does not establish answer quality or target-hardware fit.
 - Scheduler fixtures cover twenty completed jobs, approval waits, cancellation recovery, live tool revocation, and uncertain-write handling. Real provider runs remain unverified.
+
+## Latest local verification
+
+The [2026-10-29 QA report](docs/qa-2026-10-29.md) records the full Go suite, dashboard regressions, 15 passing browser cases with 3 Mac LAN skips, and 50 real-CLI/disposable-daemon workflow checks. The new workflow exported 580 audit records and verified fixture approval, denial, redaction, and permission diagnostics. It used simulated model/MCP HTTP endpoints and installed no AI model. Native CI now runs this workflow on Linux, macOS, and Windows; check the report for the current CI outcome.
 
 ## Release work remaining
 

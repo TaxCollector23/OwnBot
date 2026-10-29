@@ -89,7 +89,7 @@
           <p>Development installs require Node.js 18+ and Go 1.24+. The install script builds the CLI and daemon for this machine.</p>
           <pre><code>git clone https://github.com/TaxCollector23/OwnBot.git
 cd OwnBot
-npm install -g .</code></pre>
+npm install -g . --allow-scripts=ownbot</code></pre>
           <p>The npm package is not published yet. After publication, the alpha install will be <code>npm install -g ownbot@alpha</code>.</p>
         </section>
         <section id="setup">
@@ -119,7 +119,9 @@ ownbot daemon start</code></pre>
         </section>
         <section id="more">
           <h2>More guides</h2>
+          <p>Use the read-only local checks and audit export to inspect setup and review saved events. They do not run an agent or prove that a live model or provider will respond; see the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/inspect-and-audit.md">inspect and audit guide</a> for exact commands and safe bug-report details.</p>
           <ul>
+            <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/inspect-and-audit.md">Inspect local setup and export audit history</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/hardware.md">Hardware and model checks</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/service.md">Daemon service management</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">Release status</a></li>

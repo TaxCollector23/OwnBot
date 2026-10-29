@@ -46,8 +46,21 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - name: Run Go tests on native OS
         run: go test ./...
+      - name: Exercise CLI and daemon with local HTTP fixtures
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -o "$RUNNER_TEMP/ownbot-cli.exe" ./cmd/ownbot
+          go build -o "$RUNNER_TEMP/ownbot-daemon.exe" ./cmd/ownbotd
+          OWNBOT_BINARY="$RUNNER_TEMP/ownbot-cli.exe" \
+          OWNBOTD_BINARY="$RUNNER_TEMP/ownbot-daemon.exe" \
+          node scripts/test-local-workflows.cjs
 
   freebsd-cross-build:
     runs-on: ubuntu-latest

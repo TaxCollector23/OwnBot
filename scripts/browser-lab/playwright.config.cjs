@@ -7,7 +7,9 @@ module.exports = defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Viewport projects share one MCP fixture and reset its dispatch counters.
+  // Serialize locally as well as in CI so a sibling test cannot reset a run.
+  workers: 1,
   reporter: 'list',
   outputDir: path.join(__dirname, 'artifacts/browser-results'),
   use: {

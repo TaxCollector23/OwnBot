@@ -15,3 +15,10 @@ See `demo-site/README.md` for serving, recording, rendering, and deployment. Dep
 ## Website refinement review
 
 Five GPT-6 Luna agents at max effort covered design, implementation, end-to-end QA, accessibility, and maintainer review. The website now has visible mobile navigation, a sticky docs index, labeled demos, and copy controls with a manual keyboard fallback. Final verification: 172 local assertions and 173 hosted assertions, zero failures. See `docs/website-qa-2026-10-28.md` and `demo-site/scripts/test-site.cjs`. Website code: `a7789ae`; production: https://ownbot-demo.vercel.app.
+
+## Local workflow features · 2026-10-29
+
+- `ownbot inspect check [--json]`: read-only setup and permission diagnostics; no probes or provider calls.
+- `ownbot inspect audit export [--run ID] [--event TYPE] [--out FILE]`: complete cursor-paginated history, exact filters, and output replacement only after successful export. Tool bodies are redacted; metadata must still be reviewed before sharing.
+- Read-only agent metadata now includes MCP server bindings. Inspection help no longer advertises the unavailable logs API.
+- Added real CLI/disposable-daemon E2E fixtures and native-OS CI execution; no model installation. See `docs/qa-2026-10-29.md` for exact results and remaining gates.

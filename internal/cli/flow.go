@@ -301,8 +301,14 @@ func tryOpenURL(address string) bool {
 }
 
 func runInspect(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot inspect [check|hardware|models|agents|runs|audit|search] [options]\n\nRun `ownbot inspect check` for read-only setup and permission diagnostics.\nRun `ownbot inspect audit export` to export audit history.\nWith no section, inspect prints the current daemon configuration as JSON.\nCommon options: --url URL, --data-dir DIR.")
+		return nil
+	}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		switch args[0] {
+		case "check":
+			return runDiagnostics(args[1:], stdout, stderr)
 		case "models":
 			return runModel(args[1:], stdout, stderr)
 		case "agents":
@@ -318,7 +324,7 @@ func runInspect(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		case "hardware":
 			return runHardwareChecks(args[1:], stdout, stderr)
 		default:
-			return fmt.Errorf("unknown inspect section %q; available: hardware, models, agents, runs, audit, search, logs", args[0])
+			return fmt.Errorf("unknown inspect section %q; available: check, hardware, models, agents, runs, audit, search", args[0])
 		}
 	}
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"ownbot/internal/server"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -280,14 +282,17 @@ func TestConnectAddStoresDisabledMetadataOnly(t *testing.T) {
 	}
 }
 
-func TestAuditExportWritesJSONLAndReportsCurrentScope(t *testing.T) {
+func TestAuditExportWritesJSONLAndReportsSupportedScope(t *testing.T) {
 	dataDir := tokenDir(t)
 	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/audit" || r.Method != http.MethodGet {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = io.WriteString(w, `[{"id":1,"event_type":"agent.created"},{"id":2,"event_type":"model.probed"}]`)
+		if r.URL.Query().Get("limit") != "500" {
+			t.Errorf("page size = %q, want 500", r.URL.Query().Get("limit"))
+		}
+		_, _ = io.WriteString(w, `[{"id":2,"event_type":"model.probed"},{"id":1,"event_type":"agent.created"}]`)
 	}))
 	defer server.Close()
 	var stdout, stderr strings.Builder
@@ -296,8 +301,246 @@ func TestAuditExportWritesJSONLAndReportsCurrentScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) != 2 || !strings.Contains(lines[0], "agent.created") || !strings.Contains(stderr.String(), "tool-call audit history is not implemented") {
+	if len(lines) != 2 || !strings.Contains(lines[0], "model.probed") || strings.Contains(stderr.String(), "tool-call audit history is not implemented") || !strings.Contains(stderr.String(), "stored audit events newest first") || !strings.Contains(stderr.String(), "tool-call arguments and results are redacted") || !strings.Contains(stderr.String(), "idempotency keys") {
 		t.Fatalf("unexpected audit export: %q; note %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestAuditExportRejectsOlderDaemonThatIgnoresFiltersBeforeWritingPage(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		flag  string
+		value string
+		item  string
+	}{
+		{
+			name:  "run filter",
+			flag:  "--run",
+			value: "wanted-run",
+			item:  `{"id":1,"run_id":"other-run","event_type":"tool.succeeded"}`,
+		},
+		{
+			name:  "event filter",
+			flag:  "--event",
+			value: "wanted.event",
+			item:  `{"id":1,"run_id":"run-1","event_type":"other.event"}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dataDir := tokenDir(t)
+			server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/audit" || r.Method != http.MethodGet {
+					http.NotFound(w, r)
+					return
+				}
+				_ = json.NewEncoder(w).Encode([]json.RawMessage{json.RawMessage(test.item)})
+			}))
+			defer server.Close()
+
+			var stdout, stderr strings.Builder
+			err := Run([]string{"inspect", "audit", "export", test.flag, test.value, "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), "update or restart the daemon") {
+				t.Fatalf("expected old-daemon filter mismatch error, got %v", err)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("mismatched filter page was exported: %q", stdout.String())
+			}
+
+			outputDir := t.TempDir()
+			outputPath := filepath.Join(outputDir, "audit.jsonl")
+			const original = "keep prior export\n"
+			if err := os.WriteFile(outputPath, []byte(original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var fileStdout strings.Builder
+			err = Run([]string{"inspect", "audit", "export", test.flag, test.value, "--out", outputPath, "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &fileStdout, &stderr)
+			if err == nil {
+				t.Fatal("file export with mismatched filter unexpectedly succeeded")
+			}
+			if fileStdout.Len() != 0 {
+				t.Fatalf("file export wrote to stdout: %q", fileStdout.String())
+			}
+			contents, err := os.ReadFile(outputPath)
+			if err != nil || string(contents) != original {
+				t.Fatalf("mismatched filter changed existing destination: %q, err=%v", contents, err)
+			}
+			entries, err := os.ReadDir(outputDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "audit.jsonl" {
+				t.Fatalf("temporary export was left behind: %#v", entries)
+			}
+		})
+	}
+}
+
+func TestAuditExportRejectsOldDaemonThatIgnoresCursorWithoutLooping(t *testing.T) {
+	dataDir := tokenDir(t)
+	var requests int
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/audit" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		events := make([]map[string]any, 0, auditExportPageLimit)
+		for id := auditExportPageLimit; id > 0; id-- {
+			events = append(events, map[string]any{"id": id, "run_id": "run-1", "event_type": "fixture.event"})
+		}
+		_ = json.NewEncoder(w).Encode(events)
+	}))
+	defer server.Close()
+
+	var stdout, stderr strings.Builder
+	err := Run([]string{"inspect", "audit", "export", "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "cursor order") {
+		t.Fatalf("expected unsupported cursor error, got %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("old daemon was queried %d times, want bounded detection after 2 pages", requests)
+	}
+	if lines := strings.Split(strings.TrimSpace(stdout.String()), "\n"); len(lines) != auditExportPageLimit {
+		t.Fatalf("stdout contains %d lines after late cursor error, want first page only", len(lines))
+	}
+}
+
+func TestAuditExportPaginatesFilteredEventsAndAtomicallyReplacesFile(t *testing.T) {
+	dataDir := tokenDir(t)
+	const total = 1201
+	var requests int
+	var cursors []string
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/audit" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		query := r.URL.Query()
+		if query.Get("limit") != "500" || query.Get("run_id") != "run/one" || query.Get("event_type") != "tool.succeeded" {
+			t.Errorf("unexpected audit query: %s", r.URL.RawQuery)
+		}
+		requests++
+		cursor := query.Get("before_id")
+		cursors = append(cursors, cursor)
+		upper := total
+		if cursor != "" {
+			var before int
+			if _, err := fmt.Sscanf(cursor, "%d", &before); err != nil {
+				t.Errorf("invalid cursor %q: %v", cursor, err)
+				return
+			}
+			upper = before - 1
+		}
+		lower := upper - 499
+		if lower < 1 {
+			lower = 1
+		}
+		events := make([]map[string]any, 0, upper-lower+1)
+		for id := upper; id >= lower; id-- {
+			events = append(events, map[string]any{"id": id, "run_id": "run/one", "event_type": "tool.succeeded"})
+		}
+		_ = json.NewEncoder(w).Encode(events)
+	}))
+	defer server.Close()
+
+	directory := t.TempDir()
+	outputPath := filepath.Join(directory, "audit.jsonl")
+	if err := os.WriteFile(outputPath, []byte("old export\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	err := Run([]string{"inspect", "audit", "export", "--run", "run/one", "--event", "tool.succeeded", "--out", outputPath, "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("audit export failed: %v (%s)", err, stderr.String())
+	}
+	if stdout.Len() != 0 || requests != 3 || strings.Join(cursors, ",") != ",702,202" {
+		t.Fatalf("stdout=%q requests=%d cursors=%v", stdout.String(), requests, cursors)
+	}
+	contents, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(contents)), "\n")
+	if len(lines) != total {
+		t.Fatalf("got %d lines, want %d", len(lines), total)
+	}
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+		t.Fatalf("export mode %04o, want 0600", info.Mode().Perm())
+	}
+	seen := make(map[int]bool, total)
+	for i, line := range lines {
+		var item struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			t.Fatal(err)
+		}
+		want := total - i
+		if item.ID != want || seen[item.ID] {
+			t.Fatalf("line %d has ID %d (duplicate=%t), want %d", i, item.ID, seen[item.ID], want)
+		}
+		seen[item.ID] = true
+	}
+}
+
+func TestAuditExportSecondPageFailurePreservesDestination(t *testing.T) {
+	dataDir := tokenDir(t)
+	var requests int
+	server := ownBotTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/audit" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		if requests == 2 {
+			http.Error(w, `{"error":"fixture second page failure"}`, http.StatusBadGateway)
+			return
+		}
+		events := make([]map[string]any, 0, 500)
+		for id := 1000; id >= 501; id-- {
+			events = append(events, map[string]any{"id": id, "event_type": "fixture.event"})
+		}
+		_ = json.NewEncoder(w).Encode(events)
+	}))
+	defer server.Close()
+
+	directory := t.TempDir()
+	outputPath := filepath.Join(directory, "audit.jsonl")
+	const original = "preserve this prior export\n"
+	if err := os.WriteFile(outputPath, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr strings.Builder
+	err := Run([]string{"inspect", "audit", "export", "--out", outputPath, "--url", server.URL, "--data-dir", dataDir}, strings.NewReader(""), io.Discard, &stderr)
+	if err == nil || requests != 2 {
+		t.Fatalf("export error=%v requests=%d", err, requests)
+	}
+	contents, readErr := os.ReadFile(outputPath)
+	if readErr != nil || string(contents) != original {
+		t.Fatalf("previous output changed: %q, err=%v", contents, readErr)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "audit.jsonl" {
+		t.Fatalf("temporary export was left behind: %#v", entries)
+	}
+}
+
+func TestAuditExportHelpUsesFullCommandAndDocumentsFailureBoundary(t *testing.T) {
+	var stdout strings.Builder
+	if err := Run([]string{"inspect", "audit", "--help"}, strings.NewReader(""), &stdout, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{"ownbot inspect audit export", "--run RUN_ID", "--event EVENT_TYPE", "newest-first JSONL", "stored audit events", "Tool-call arguments and results are redacted", "caller-supplied idempotency keys", "0600 on Unix", "partial output"} {
+		if !strings.Contains(stdout.String(), phrase) {
+			t.Errorf("help missing %q: %s", phrase, stdout.String())
+		}
 	}
 }
 

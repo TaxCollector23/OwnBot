@@ -65,6 +65,7 @@
             <li><a href="#lan">LAN access</a></li>
             <li><a href="#service">Daemon service</a></li>
             <li><a href="#hardware">Hardware checks</a></li>
+            <li><a href="#inspect-audit">Inspect and audit</a></li>
             <li><a href="#homebrew">Homebrew</a></li>
             <li><a href="#status">Release status</a></li>
           </ol>
@@ -109,6 +110,7 @@
               <li><a href="#lan">LAN</a></li>
               <li><a href="#service">Service</a></li>
               <li><a href="#hardware">Hardware</a></li>
+              <li><a href="#inspect-audit">Inspect and audit</a></li>
               <li><a href="#homebrew">Homebrew</a></li>
               <li><a href="#status">Status</a></li>
             </ul>
@@ -250,6 +252,12 @@ ownbot inspect hardware --benchmark --model MODEL_NAME</pre>
                 </table>
               </div>
               <p>These timings came from separate GitHub-hosted Linux CPU runners and cannot rank the runtimes against each other. Always probe the installed model on the target host. Details: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/hardware.md">hardware.md</a>.</p>
+            </section>
+
+            <section id="inspect-audit">
+              <h2>Inspect local setup and audit history</h2>
+              <p class="lead">Use <span class="mono">ownbot inspect check</span> to review daemon, model, agent, tool, and MCP metadata plus pending approvals. Use <span class="mono">ownbot inspect audit export</span> to read saved audit events.</p>
+              <p>These read-only commands do not install models, run agent tasks, or prove a live model or provider will respond. See the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/inspect-and-audit.md">inspect and audit guide</a> for verified options, output behavior, and safe bug-report details.</p>
             </section>
 
             <section id="homebrew">
