@@ -35,7 +35,7 @@ Use the address printed by the command. A different LAN IP can result in a new c
 
 ## Check the certificate
 
-The LAN HTTPS certificate is self-signed. Before trusting it, compare the SHA-256 fingerprint printed by the host CLI with the value shown in the host dashboard's **LAN access** section. You can independently calculate the certificate file's fingerprint on the host:
+The LAN HTTPS certificate is self-signed. Before trusting it, compare the SHA-256 fingerprint printed by the host CLI with the fingerprint printed by `ownbot daemon pair`. You can independently calculate the certificate file's fingerprint on the host:
 
 ```sh
 openssl x509 -in ~/.ownbot/lan.cert.pem -noout -fingerprint -sha256
@@ -65,11 +65,11 @@ Android certificate installation options vary by device and OS version. Google's
 ## Pair and revoke
 
 1. On the host, run `ownbot daemon start --lan` to open the local dashboard with an owner session. If the daemon is already running, the command opens a session for it if the LAN address matches the running configuration.
-2. In **LAN access**, create a pairing link and send it only to the intended device. The link contains a one-use credential and expires; anyone who gets it first can pair.
+2. Run `ownbot daemon pair` on the host and send the printed pairing link only to the intended device. The link contains a one-use credential and expires; anyone who gets it first can pair.
 3. Open the HTTPS link on the trusted device and submit a device name. The browser stores its device token in that browser tab's session storage; it never receives the host's API token.
-4. Revoke a device in the host dashboard's **Paired devices** list. Its next API request is rejected. Pair it again from the host if access is needed later.
+4. Run `ownbot daemon devices`, then `ownbot daemon devices --revoke DEVICE_ID` on the host. Its next API request is rejected. Pair it again from the host if access is needed later.
 
-Paired devices receive dashboard access, but cannot view LAN settings, create links, or manage other devices. **Forget this browser** removes its saved paired token from that browser tab; it does not revoke the device at the host. Use **Revoke access** on the host to invalidate it.
+Paired devices receive dashboard access, but cannot view LAN settings, create links, or manage other devices. **Forget this browser** removes its saved paired token from that browser tab; it does not revoke the device at the host. Use `ownbot daemon devices --revoke DEVICE_ID` on the host to invalidate it.
 
 ## Troubleshooting
 

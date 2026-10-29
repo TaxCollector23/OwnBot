@@ -1,6 +1,6 @@
 # Release status
 
-Updated 2026-10-28. `ownbot` is still in development. Do not treat this checkout as a signed or production release. The renamed `ownbot` package is not yet available from npm, and the GitHub Pages workflow has not been deployed.
+Updated 2026-10-28. `ownbot` is still in development. Do not treat this checkout as a signed or production release. The renamed `ownbot` package is not yet available from npm, and the documentation is live on GitHub Pages.
 
 ## Current scope
 

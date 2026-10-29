@@ -9,3 +9,5 @@
 - Select minimum supported hardware and a model after measuring the capability probe on an M2 Mac mini. A passing probe does not guarantee accuracy or prevent hallucinations.
 - Verify scheduler restart/retry, agent execution, approvals, and audit trails end to end with real provider accounts.
 - Complete and verify [the release gate](docs/release-gate.md) before publishing. Package signed, verifiable releases for npm and Homebrew only after the release checks pass.
+
+- Signed-update implementation is preserved on `codex/signed-updates`; it is not merged or released. Finish the production public-key pin and live signed install/update/rollback verification before advertising it.

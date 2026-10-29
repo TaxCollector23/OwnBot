@@ -298,6 +298,9 @@ func parseFlags(fs *flag.FlagSet, args []string, stderr io.Writer) error {
 func clientFor(apiURL, dataDir string) (*Client, error) { return NewClient(apiURL, dataDir) }
 
 func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && (args[0] == "automation" || args[0] == "automations") {
+		return runAutomationSetup(args[1:], stdout, stderr)
+	}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		switch args[0] {
 		case "model":
@@ -540,7 +543,7 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}, &agent); err != nil {
 		return fmt.Errorf("model %q was saved, but tool-free agent creation failed: %w", model.Name, err)
 	}
-	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n%sNext: ownbot\n", model.Name, agent.Name, setupNotice)
+	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n%sNext: ownbot daemon start\n", model.Name, agent.Name, setupNotice)
 	return nil
 }
 

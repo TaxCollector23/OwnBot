@@ -31,7 +31,7 @@ func TestRecommendationsForHardware(t *testing.T) {
 			}
 			if tc.wantCount == 1 {
 				suggestion := result.Suggestions[0]
-				if suggestion.Model != "qwen3:1.7b" || suggestion.InstallCommand != "ollama pull qwen3:1.7b" || !strings.Contains(suggestion.Reason, "quality and M1 performance are unverified") {
+				if suggestion.Model != "qwen3:1.7b" || suggestion.InstallCommand != "ollama pull qwen3:1.7b" || !strings.Contains(suggestion.Reason, "on this host are unverified") {
 					t.Fatalf("unexpected suggestion: %+v", suggestion)
 				}
 				if strings.Contains(strings.ToLower(suggestion.Reason), "guarantee") {

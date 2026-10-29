@@ -115,7 +115,7 @@ ownbot daemon start</code></pre>
           <h2>Access from another device</h2>
           <p>For a device on the same private Wi-Fi or Ethernet, start LAN mode:</p>
           <pre><code>ownbot daemon start --lan</code></pre>
-          <p>Compare the printed HTTPS certificate fingerprint with the host dashboard before trusting the certificate, then create a one-use pairing link. LAN access does not provide cellular or public internet access. See the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/lan-access.md">LAN access guide</a> for certificate and revocation steps.</p>
+          <p>Compare the printed HTTPS certificate fingerprint with the host dashboard before trusting the certificate, then run <code>ownbot daemon pair</code> in the host terminal to create a one-use link. LAN access does not provide cellular or public internet access. See the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/lan-access.md">LAN access guide</a> for certificate and revocation steps.</p>
         </section>
         <section id="more">
           <h2>More guides</h2>
