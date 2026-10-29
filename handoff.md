@@ -22,3 +22,5 @@ Five GPT-6 Luna agents at max effort covered design, implementation, end-to-end 
 - `ownbot inspect audit export [--run ID] [--event TYPE] [--out FILE]`: complete cursor-paginated history, exact filters, and output replacement only after successful export. Tool bodies are redacted; metadata must still be reviewed before sharing.
 - Read-only agent metadata now includes MCP server bindings. Inspection help no longer advertises the unavailable logs API.
 - Added real CLI/disposable-daemon E2E fixtures and native-OS CI execution; no model installation. See `docs/qa-2026-10-29.md` for exact results and remaining gates.
+
+Verification for application commit `e644335`: native Linux/macOS/Windows CI passed (workflow checks 50/50/49), FreeBSD cross-build and package dry run passed, Linux dashboard browser lab 18/18 passed, and isolated LAN lab passed. Updated website checks: 349 local/production assertions, zero failures. The report links every CI run and preserves unverified release gates.

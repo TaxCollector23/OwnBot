@@ -21,7 +21,7 @@ Updated 2026-10-29. `ownbot` is still in development. Do not treat this checkout
 
 ## Latest local verification
 
-The [2026-10-29 QA report](docs/qa-2026-10-29.md) records the full Go suite, dashboard regressions, 15 passing browser cases with 3 Mac LAN skips, and 50 real-CLI/disposable-daemon workflow checks. The new workflow exported 580 audit records and verified fixture approval, denial, redaction, and permission diagnostics. It used simulated model/MCP HTTP endpoints and installed no AI model. Native CI now runs this workflow on Linux, macOS, and Windows; check the report for the current CI outcome.
+The [2026-10-29 QA report](docs/qa-2026-10-29.md) records the full Go suite, dashboard regressions, 15 passing browser cases with 3 Mac LAN skips, and 50 real-CLI/disposable-daemon workflow checks. The new workflow exported 580 audit records and verified fixture approval, denial, redaction, and permission diagnostics. It used simulated model/MCP HTTP endpoints and installed no AI model. Native CI passed the Go tests and new CLI workflow on Linux, macOS, and Windows. Linux dashboard CI passed all 18 cases, and the isolated LAN lab passed. These remain automated/fixture results; see the report for exact evidence and limits.
 
 ## Release work remaining
 
