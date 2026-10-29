@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -43,6 +44,9 @@ func run(args []string) error {
 }
 
 func keygen(args []string) error {
+	if runtime.GOOS == "windows" {
+		return errors.New("file-based key generation is unsupported on Windows; generate the private key on a Unix system")
+	}
 	fs := flag.NewFlagSet("keygen", flag.ContinueOnError)
 	keyID := fs.String("key-id", "", "public key identifier")
 	privatePath := fs.String("private-out", "", "new private key file (created mode 0600)")
@@ -123,6 +127,9 @@ func sign(args []string) error {
 		}
 		privateBytes = decoded
 	} else {
+		if runtime.GOOS == "windows" {
+			return errors.New("file-based private key signing is unsupported on Windows; use the protected environment variable")
+		}
 		info, err := os.Stat(*privatePath)
 		if err != nil {
 			return fmt.Errorf("read private key file metadata: %w", err)
