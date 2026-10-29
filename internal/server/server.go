@@ -240,6 +240,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/agents/{id}/prompts", s.prompts)
 	s.mux.HandleFunc("POST /api/agents/{id}/prompts", s.addPrompt)
 	s.mux.HandleFunc("GET /api/approvals", s.approvals)
+	s.mux.HandleFunc("GET /api/approvals/{id}", s.getApproval)
 	s.mux.HandleFunc("POST /api/approvals", s.createApproval)
 	s.mux.HandleFunc("POST /api/approvals/{id}/approve", s.decide(true))
 	s.mux.HandleFunc("POST /api/approvals/{id}/deny", s.decide(false))

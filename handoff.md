@@ -24,3 +24,7 @@ Five GPT-6 Luna agents at max effort covered design, implementation, end-to-end 
 - Added real CLI/disposable-daemon E2E fixtures and native-OS CI execution; no model installation. See `docs/qa-2026-10-29.md` for exact results and remaining gates.
 
 Verification for application commit `e644335`: native Linux/macOS/Windows CI passed (workflow checks 50/50/49), FreeBSD cross-build and package dry run passed, Linux dashboard browser lab 18/18 passed, and isolated LAN lab passed. Updated website checks: 349 local/production assertions, zero failures. The report links every CI run and preserves unverified release gates.
+
+## Both surfaces: SSH approvals and searchable docs
+
+Added exact-ID CLI approval review/decisions and a read-only request lookup endpoint, plus browser-local docs filtering with Escape/Clear and hash-history recovery. Manual runs resume separately; scheduled automations may continue after explicit approval. See `docs/approvals.md` and the latest follow-up in `docs/qa-2026-10-29.md`. No model installation or new permission grants.

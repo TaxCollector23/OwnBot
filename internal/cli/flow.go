@@ -302,7 +302,7 @@ func tryOpenURL(address string) bool {
 
 func runInspect(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownbot inspect [check|hardware|models|agents|runs|audit|search] [options]\n\nRun `ownbot inspect check` for read-only setup and permission diagnostics.\nRun `ownbot inspect audit export` to export audit history.\nWith no section, inspect prints the current daemon configuration as JSON.\nCommon options: --url URL, --data-dir DIR.")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot inspect [check|hardware|models|agents|runs|approvals|audit|search] [options]\n\nRun `ownbot inspect check` for read-only setup and permission diagnostics.\nRun `ownbot inspect approvals --help` to review and decide individual requests.\nRun `ownbot inspect audit export` to export audit history.\nWith no section, inspect prints the current daemon configuration as JSON.\nCommon options: --url URL, --data-dir DIR.")
 		return nil
 	}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -315,6 +315,8 @@ func runInspect(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 			return runAgent(args[1:], stdin, stdout, stderr)
 		case "runs":
 			return runRuns(args[1:], stdout, stderr)
+		case "approvals":
+			return runApprovals(args[1:], stdout, stderr)
 		case "audit":
 			return runAudit(args[1:], stdout, stderr)
 		case "search":
@@ -324,7 +326,7 @@ func runInspect(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		case "hardware":
 			return runHardwareChecks(args[1:], stdout, stderr)
 		default:
-			return fmt.Errorf("unknown inspect section %q; available: check, hardware, models, agents, runs, audit, search", args[0])
+			return fmt.Errorf("unknown inspect section %q; available: check, hardware, models, agents, runs, approvals, audit, search", args[0])
 		}
 	}
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)

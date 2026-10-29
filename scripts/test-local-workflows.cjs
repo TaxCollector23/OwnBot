@@ -408,11 +408,26 @@ async function main() {
   check(firstRun.status === 'awaiting_approval' && typeof firstRun.id === 'string', 'write request pauses at a pending approval');
   const pendingCalls = (await fixtureStats()).mcpWrites;
   check(pendingCalls === 0, 'fixture has received zero writes before approval');
-  const approvals = await ownerAPI('/api/approvals');
+  const beforeApprovalReads = await fixtureStats();
+  const approvals = await runReport(['inspect', 'approvals', 'list', ...commonOptions()]);
   const pending = approvals.find(item => item.run_id === firstRun.id && item.status === 'pending');
   check(!!pending && JSON.stringify(pending.args).includes(argSentinel), 'pending approval contains the fixture tool arguments');
-  const approved = await ownerAPI('/api/approvals/' + encodeURIComponent(pending.id) + '/approve', { method: 'POST', body: {} });
-  check(approved.status === 'approved', 'owner approves the pending write through the daemon API');
+  const approvalShown = await runReport(['inspect', 'approvals', 'show', ...commonOptions(), pending.id]);
+  check(approvalShown.id === pending.id && approvalShown.status === 'pending' && JSON.stringify(approvalShown.args).includes(argSentinel), 'approval show fetches the exact pending request and full arguments');
+  check(JSON.stringify(beforeApprovalReads) === JSON.stringify(await fixtureStats()), 'approval list and show make no model or MCP provider calls');
+
+  const approved = await runReport(['inspect', 'approvals', 'approve', ...commonOptions(), pending.id]);
+  check(approved.id === pending.id && approved.status === 'approved', 'approval CLI records the exact approval decision');
+  const savedApproval = await ownerAPI('/api/approvals/' + encodeURIComponent(pending.id));
+  check(savedApproval.status === 'approved' && !!savedApproval.decided_at && savedApproval.approver === 'local-user', 'daemon records the approved state and decision metadata');
+  const approvedAuditPath = '/api/audit?event_type=approval.approved&run_id=' + encodeURIComponent(firstRun.id);
+  const approvedEvents = await ownerAPI(approvedAuditPath);
+  check(approvedEvents.length === 1 && approvedEvents[0].details?.approval_id === pending.id, 'approval decision creates one matching audit event');
+  check((await fixtureStats()).mcpWrites === pendingCalls, 'manual approval does not dispatch before explicit run resume');
+
+  const duplicate = await runCLI(['inspect', 'approvals', 'approve', ...commonOptions(), pending.id], 'duplicate approval decision', 1);
+  check(/already "approved"|already approved/i.test(duplicate.stderr), 'duplicate approval decision exits nonzero as already decided');
+  check((await ownerAPI(approvedAuditPath)).length === 1 && (await fixtureStats()).mcpWrites === pendingCalls, 'duplicate decision adds no audit decision and no provider write');
 
   const resumed = await runReport(['inspect', 'runs', 'resume', ...commonOptions(), firstRun.id]);
   check(resumed.status === 'completed', 'approved run resumes to completion');
@@ -425,11 +440,17 @@ async function main() {
   ]);
   check(secondRun.status === 'awaiting_approval' && typeof secondRun.id === 'string', 'second write also pauses for approval');
   const beforeDenyWrites = (await fixtureStats()).mcpWrites;
-  const secondApprovals = await ownerAPI('/api/approvals');
+  const secondApprovals = await runReport(['inspect', 'approvals', 'list', ...commonOptions()]);
   const secondPending = secondApprovals.find(item => item.run_id === secondRun.id && item.status === 'pending');
   check(!!secondPending, 'second run records a pending approval');
-  const denied = await ownerAPI('/api/approvals/' + encodeURIComponent(secondPending.id) + '/deny', { method: 'POST', body: {} });
-  check(denied.status === 'denied', 'owner denies the second write');
+  const secondShown = await runReport(['inspect', 'approvals', 'show', ...commonOptions(), secondPending.id]);
+  check(secondShown.id === secondPending.id && secondShown.status === 'pending', 'approval show resolves the second exact request');
+  const denied = await runReport(['inspect', 'approvals', 'deny', ...commonOptions(), secondPending.id]);
+  check(denied.id === secondPending.id && denied.status === 'denied', 'approval CLI records the denial for the exact request');
+  const savedDenial = await ownerAPI('/api/approvals/' + encodeURIComponent(secondPending.id));
+  check(savedDenial.status === 'denied' && !!savedDenial.decided_at, 'daemon records the denied state and decision time');
+  const deniedEvents = await ownerAPI('/api/audit?event_type=approval.denied&run_id=' + encodeURIComponent(secondRun.id));
+  check(deniedEvents.length === 1 && deniedEvents[0].details?.approval_id === secondPending.id, 'denial creates one matching audit event');
   const rejectedRun = await runReport(['inspect', 'runs', 'resume', ...commonOptions(), secondRun.id]);
   check(rejectedRun.status === 'failed', 'denied run ends without dispatch');
   check((await fixtureStats()).mcpWrites === beforeDenyWrites, 'denied write adds zero fixture dispatches');
@@ -482,7 +503,7 @@ async function main() {
 
   console.log('PASS: ' + passed.length + ' local workflow checks');
   console.log('Audit records exported: ' + allEvents.length + ' total, including 550 pagination-fixture agent creations.');
-  console.log('Coverage: empty diagnostics; fixture model capability probe; disabled agent and MCP setup; missing/correct server binding; approve/resume once; deny without dispatch; redacted audit pagination and filters; stopped-daemon unknown JSON.');
+  console.log('Coverage: empty diagnostics; fixture model capability probe; MCP server binding; approval CLI list/show/approve/deny; explicit resume once; duplicate decision no-op; deny without dispatch; redacted audit pagination and filters; stopped-daemon unknown JSON.');
 }
 
 async function cleanup() {

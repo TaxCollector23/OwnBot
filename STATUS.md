@@ -6,6 +6,8 @@ Updated 2026-10-29. `ownbot` is still in development. Do not treat this checkout
 
 - The CLI supports local model detection and capability probing, daemon controls, and a local dashboard.
 - `ownbot inspect check` reports saved setup and permission metadata without inference, provider calls, or configuration changes.
+- `ownbot inspect approvals` lists, reviews, and explicitly approves or denies one request from the host CLI, including over SSH. Scheduled automations may continue after approval; manual runs resume separately. See the [approval guide](docs/approvals.md).
+- The website docs offer local text filtering, keyboard clearing, and navigation that reveals hidden sections. Search terms are not sent to a service.
 - `ownbot inspect audit export` exports complete stored history with exact run/event filters and safe output-file replacement. Tool-call argument/result bodies are redacted; other metadata can contain private information. See the [inspection guide](docs/inspect-and-audit.md).
 - Setup detects installed models from Ollama, LM Studio, llama.cpp, and vLLM. It does not download models or configure hosted provider keys.
 - LAN mode provides HTTPS pairing for devices on the host's private network. It does not provide cellular or public internet access.

@@ -1,6 +1,6 @@
 # Inspect local setup and audit history
 
-Use OwnBot's inspection commands to review local configuration and saved audit events. They are read-only: they do not install models, run agent tasks, or approve pending actions. A local readiness report does not prove that a model or provider will respond to a future request.
+`ownbot inspect check` and audit export review local configuration and saved events without changing daemon configuration or approving actions. Export can write the output file you choose. A local readiness report does not prove that a model or provider will respond to a future request.
 
 ## Check local setup
 
@@ -35,3 +35,5 @@ Include the OwnBot version, operating system, exact command and options, and a s
 ## Label the evidence
 
 Say whether a result came from a fixture or isolated test, a local daemon, or a live model/provider. A fixture or local metadata check is not evidence of live model inference or provider connectivity.
+
+For deliberate write decisions, use the separate [approval commands](approvals.md). They are not read-only: approval can allow the requested operation to continue.

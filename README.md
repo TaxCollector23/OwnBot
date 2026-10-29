@@ -29,6 +29,6 @@ For LAN pairing, use `ownbot daemon start --lan` and follow the [LAN guide](docs
 
 ## Docs
 
-[Homebrew](docs/homebrew.md) · [Hardware and model checks](docs/hardware.md) · [Inspect and audit](docs/inspect-and-audit.md) · [Daemon service](docs/service.md) · [LAN access](docs/lan-access.md) · [Release status](STATUS.md) · [Writing docs](docs/WRITING-DOCS.md) · [GitHub Pages guide](https://taxcollector23.github.io/OwnBot/)
+[Homebrew](docs/homebrew.md) · [Hardware and model checks](docs/hardware.md) · [Inspect and audit](docs/inspect-and-audit.md) · [Review approvals](docs/approvals.md) · [Daemon service](docs/service.md) · [LAN access](docs/lan-access.md) · [Release status](STATUS.md) · [Writing docs](docs/WRITING-DOCS.md) · [GitHub Pages guide](https://taxcollector23.github.io/OwnBot/)
 
 After the `ownbot` package is published to npm, install it with `npm install -g ownbot@alpha`.

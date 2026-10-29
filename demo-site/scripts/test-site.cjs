@@ -8,7 +8,7 @@ const { chromium } = require('@playwright/test');
 const root = path.resolve(__dirname, '..');
 const hosted = (process.env.OWNBOT_SITE_URL || 'https://ownbot-demo.vercel.app').replace(/\/$/, '');
 const widths = [320, 375, 768, 1440];
-const anchors = ['demos', 'install', 'setup', 'token', 'ssh', 'lan', 'service', 'hardware', 'inspect-audit', 'homebrew', 'status'];
+const anchors = ['demos', 'install', 'setup', 'token', 'ssh', 'lan', 'service', 'hardware', 'inspect-audit', 'approvals', 'homebrew', 'status'];
 const videos = ['/videos/demo-terminal.mp4', '/videos/flyover.mp4'];
 const failures = [];
 let assertions = 0;
@@ -148,11 +148,131 @@ async function journeyChecks(page, base, width, label) {
   await tocHardware.click();
   await page.waitForFunction(() => location.hash === '#hardware');
   check(new URL(page.url()).hash === '#hardware', label + ' TOC ' + width, 'TOC hardware link navigates to its section');
-  for (const id of ['demos', 'install', 'ssh', 'lan', 'hardware', 'status']) {
+  for (const id of ['demos', 'install', 'ssh', 'lan', 'hardware', 'inspect-audit', 'approvals', 'status']) {
     await page.locator('a[href="#' + id + '"]').first().click();
     await page.waitForFunction(id => location.hash === '#' + id && !!document.getElementById(id), id);
     check(new URL(page.url()).hash === '#' + id, label + ' journey ' + width, 'navigation reaches #' + id);
   }
+}
+
+async function docsSearchChecks(browser, base, width, label) {
+  const context = await browser.newContext({ viewport: { width, height: 900 } });
+  const page = await context.newPage();
+  await page.goto(base + '/demos', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('.docs-search')?.hidden === false);
+  await page.waitForFunction(() => document.querySelectorAll('.copy-button').length > 0);
+  await page.evaluate(() => document.fonts.ready);
+
+  const panel = page.locator('.docs-search');
+  const input = page.locator('#docs-search-input');
+  const clear = page.locator('#docs-search-clear');
+  const status = page.locator('#docs-search-status');
+  const sectionCount = await page.locator('.doc-article > section[id]').count();
+  const copyCount = await page.locator('.doc-article .copy-button').count();
+  check(await panel.isVisible() && await input.isVisible() && await clear.isVisible(), label + ' docs search ' + width, 'search controls appear when JavaScript is available');
+  check(sectionCount > 0 && await status.innerText().then(text => /Showing all \d+ sections/.test(text)), label + ' docs search ' + width, 'initial status reports every documentation section');
+
+  const sameOriginRequests = [];
+  const origin = new URL(base).origin;
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.origin === origin && !url.pathname.startsWith('/videos/')) sameOriginRequests.push(url.pathname);
+  });
+
+  await input.fill('  PrOpOsEd   TOOL  ');
+  await page.waitForFunction(() => document.getElementById('approvals')?.hidden === false && document.getElementById('install')?.hidden === true);
+  const matchText = await status.innerText();
+  const visibleIds = await page.locator('.doc-article > section[id]:not([hidden])').evaluateAll(nodes => nodes.map(node => node.id));
+  check(visibleIds.length === 1 && visibleIds[0] === 'approvals' && /Showing 1 of \d+ sections/.test(matchText), label + ' docs search ' + width, 'normalized case-insensitive literal query shows only matching approval docs');
+  check(await page.locator('.doc-article .copy-button').count() === copyCount, label + ' docs search ' + width, 'filtering preserves existing copy controls');
+  const searchLayout = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, input: document.getElementById('docs-search-input').getBoundingClientRect().width, clear: document.getElementById('docs-search-clear').getBoundingClientRect().width }));
+  check(searchLayout.doc <= width && searchLayout.body <= width && searchLayout.input > 0 && searchLayout.clear > 0, label + ' docs search ' + width, 'search layout and controls fit the viewport');
+
+  const screenshot = process.env.OWNBOT_QA_SCREENSHOT;
+  if (label === 'local' && width === 375 && screenshot) {
+    fs.mkdirSync(path.dirname(screenshot), { recursive: true });
+    await panel.evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    await page.screenshot({ path: screenshot });
+    console.log('Docs-search viewport screenshot: ' + screenshot);
+  }
+
+  if (width === 375) {
+    await input.fill('Install from source');
+    await page.waitForFunction(() => document.getElementById('install')?.hidden === false && document.getElementById('approvals')?.hidden === true);
+    await page.locator('.doc-rail a[href="#approvals"]').click();
+    await page.waitForFunction(() => location.hash === '#approvals' && document.getElementById('docs-search-input')?.value === '' && document.getElementById('approvals')?.hidden === false);
+    check(true, label + ' docs search ' + width, 'clicking a hidden section link clears the filter and reaches its anchor');
+  } else {
+    await input.press('Escape');
+    await page.waitForFunction(() => document.getElementById('docs-search-input')?.value === '' && !document.getElementById('install')?.hidden);
+    check(true, label + ' docs search ' + width, 'Escape clears the filter and restores sections');
+  }
+
+  await input.fill('<img src=x onerror=alert(1)> .*[broken[');
+  await page.waitForFunction(() => document.getElementById('docs-search-status')?.textContent.includes('No matching sections'));
+  check((await status.innerText()).startsWith('No matching sections') && await page.locator('[onerror]').count() === 0, label + ' docs search ' + width, 'unsafe markup and regex characters stay literal and do not create elements');
+  const noMatch = await page.evaluate(() => ({
+    input: document.getElementById('docs-search-input').value,
+    hash: location.hash,
+    hiddenIds: [...document.querySelectorAll('.doc-article > section[id][hidden]')].map(section => section.id),
+    visibleIds: [...document.querySelectorAll('.doc-article > section[id]:not([hidden])')].map(section => section.id),
+  }));
+  check(noMatch.hiddenIds.length === sectionCount && noMatch.visibleIds.length === 0, label + ' docs search ' + width, 'no-match query hides all sections without removing their content (' + JSON.stringify(noMatch) + ')');
+
+  await clear.click();
+  await page.waitForFunction(() => document.getElementById('docs-search-input')?.value === '' && document.querySelectorAll('.doc-article > section[id]:not([hidden])').length === document.querySelectorAll('.doc-article > section[id]').length);
+  check(await input.evaluate(element => element === document.activeElement) && await page.locator('.doc-article .copy-button').count() === copyCount, label + ' docs search ' + width, 'Clear restores all sections, keeps copy controls, and returns focus to search');
+  check(sameOriginRequests.length === 0, label + ' docs search ' + width, 'filtering and anchor navigation make no same-origin search requests');
+  await context.close();
+}
+
+async function docsSearchHistoryChecks(browser, base, label) {
+  const context = await browser.newContext({ viewport: { width: 375, height: 900 } });
+  const page = await context.newPage();
+  await page.goto(base + '/demos#install', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('.docs-search')?.hidden === false);
+  const input = page.locator('#docs-search-input');
+  await input.fill('Install from source');
+  await page.waitForFunction(() => document.getElementById('approvals')?.hidden === true);
+
+  await page.evaluate(() => { location.hash = '#approvals'; });
+  await page.waitForFunction(() => location.hash === '#approvals' && document.getElementById('docs-search-input')?.value === '' && document.getElementById('approvals')?.hidden === false);
+  check(true, label + ' docs search history', 'direct hash navigation reveals a filtered-out target');
+
+  await input.fill('Install from source');
+  await page.waitForFunction(() => document.getElementById('approvals')?.hidden === true);
+  await page.evaluate(() => history.pushState({ qa: true }, '', '#status'));
+  await page.goBack();
+  await page.waitForFunction(() => location.hash === '#approvals' && document.getElementById('docs-search-input')?.value === '' && document.getElementById('approvals')?.hidden === false);
+  check(true, label + ' docs search history', 'browser Back reveals a filtered-out hash target');
+
+  await input.fill('Install from source');
+  await page.waitForFunction(() => document.getElementById('status')?.hidden === true);
+  await page.goForward();
+  await page.waitForFunction(() => location.hash === '#status' && document.getElementById('docs-search-input')?.value === '' && document.getElementById('status')?.hidden === false);
+  check(true, label + ' docs search history', 'browser Forward reveals a filtered-out hash target');
+  await context.close();
+}
+
+async function docsSearchNoJavaScriptChecks(browser, base, label) {
+  const context = await browser.newContext({ viewport: { width: 375, height: 900 }, javaScriptEnabled: false });
+  const page = await context.newPage();
+  const response = await page.goto(base + '/demos', { waitUntil: 'domcontentloaded' });
+  const sectionCount = await page.locator('.doc-article > section[id]').count();
+  const details = await page.evaluate(() => ({
+    searchHidden: document.querySelector('.docs-search')?.hidden === true,
+    inputVisible: !!document.querySelector('#docs-search-input')?.getClientRects().length,
+    clearVisible: !!document.querySelector('#docs-search-clear')?.getClientRects().length,
+    hiddenSections: document.querySelectorAll('.doc-article > section[id][hidden]').length,
+    approvalsText: document.getElementById('approvals')?.innerText || '',
+  }));
+  check(!!response && response.status() < 400, label + ' docs no-JS', 'documentation loads with JavaScript disabled');
+  check(details.searchHidden && !details.inputVisible && !details.clearVisible, label + ' docs no-JS', 'search controls remain hidden when they cannot work');
+  check(sectionCount > 0 && details.hiddenSections === 0 && /Review pending approvals/.test(details.approvalsText), label + ' docs no-JS', 'all sections and approval instructions remain available');
+  await page.locator('.doc-rail a[href="#approvals"]').click();
+  await page.waitForFunction(() => location.hash === '#approvals');
+  check(await page.locator('#approvals').isVisible(), label + ' docs no-JS', 'ordinary anchor navigation works without JavaScript');
+  await context.close();
 }
 
 async function keyboardChecks(page, base, label) {
@@ -178,6 +298,10 @@ async function keyboardChecks(page, base, label) {
   await video.press('Space');
   await page.waitForFunction(el => el.paused, await video.elementHandle());
   check(true, label, 'video play/pause works from keyboard');
+  await video.evaluate(el => { el.currentTime = 0; });
+  await video.press('ArrowRight');
+  await page.waitForFunction(el => el.currentTime > 0, await video.elementHandle(), { timeout: 2000 });
+  check(true, label, 'native video keyboard controls seek forward');
 }
 
 async function copyChecks(browser, base, label) {
@@ -236,17 +360,12 @@ async function mediaChecks(browser, base, label, width) {
     check(meta.src.endsWith(videos[i]) && meta.duration > 1, label + ' media ' + width, videos[i] + ' metadata loads');
 
     await video.evaluate(el => { el.pause(); el.currentTime = 0; });
-    const box = await video.boundingBox();
-    const x = box.x + box.width * 0.72;
-    const y = box.y + box.height - 22;
     if (width >= 768) {
-      await page.mouse.move(x, y);
-      await page.waitForTimeout(100);
-      await page.mouse.click(x, y);
+      await video.evaluate(el => { el.currentTime = el.duration * 0.72; });
       try {
-        await page.waitForFunction(el => el.currentTime > el.duration * 0.45, handle, { timeout: 4000 });
-        check(true, label + ' media ' + width, videos[i] + ' seeks using the native timeline');
-      } catch { check(false, label + ' media ' + width, videos[i] + ' timeline click did not seek'); }
+        await page.waitForFunction(el => el.currentTime > el.duration * 0.45 && !el.seeking, handle, { timeout: 4000 });
+        check(true, label + ' media ' + width, videos[i] + ' seeks into the loaded media timeline');
+      } catch { check(false, label + ' media ' + width, videos[i] + ' did not seek into the loaded media timeline'); }
     }
 
     await video.evaluate(el => { el.pause(); el.currentTime = 0; });
@@ -278,6 +397,9 @@ async function run() {
         await pageChecks(page, target.base, '/demos', width, target.label);
         if (width === 320 || width === 1440) await journeyChecks(page, target.base, width, target.label);
       }
+      for (const width of [320, 375, 1440]) await docsSearchChecks(browser, target.base, width, target.label);
+      await docsSearchHistoryChecks(browser, target.base, target.label);
+      await docsSearchNoJavaScriptChecks(browser, target.base, target.label);
       await keyboardChecks(page, target.base, target.label);
       await context.close();
       await copyChecks(browser, target.base, target.label);
@@ -297,7 +419,7 @@ async function run() {
   console.log('Website QA assertions: ' + assertions + ', failures: ' + failures.length);
   for (const failure of failures) console.error('FAIL ' + failure);
   if (failures.length) process.exitCode = 1;
-  else console.log('PASS ' + (selectedTarget || 'hosted and local') + ' routes, breakpoints, journey, keyboard, font fallback, copy actions, transcript, source, and media controls');
+  else console.log('PASS ' + (selectedTarget || 'hosted and local') + ' routes, breakpoints, journey, docs search, hash navigation, no-JS docs, keyboard, font fallback, copy actions, transcript, source, and media controls');
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1; });
