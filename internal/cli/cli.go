@@ -154,6 +154,9 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	case "setup":
 		err = runSetup(args[1:], stdin, stdout, stderr)
 	case "daemon":
+		if len(args) > 1 && (args[1] == "pair" || args[1] == "devices") {
+			return runDaemonAccess(args[1:], stdout, stderr)
+		}
 		return runDaemon(args[1:], stdout, stderr)
 	case "inspect":
 		err = runInspect(args[1:], stdin, stdout, stderr)
@@ -255,6 +258,7 @@ Commands:
   connect       Configure public MCP integrations (disabled by default)
   daemon start  Start the local daemon and open its dashboard
   daemon stop   Stop the local daemon
+  daemon pair|devices  Pair and manage dashboard devices
   daemon install|uninstall|status  Manage the current user's login service
   inspect       Review hardware, model probes, agents, and tool permissions
   help          Show this list
@@ -294,6 +298,16 @@ func parseFlags(fs *flag.FlagSet, args []string, stderr io.Writer) error {
 func clientFor(apiURL, dataDir string) (*Client, error) { return NewClient(apiURL, dataDir) }
 
 func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "model":
+			return runModel(args[1:], stdout, stderr)
+		case "agent":
+			return runAgent(args[1:], stdin, stdout, stderr)
+		case "search":
+			return runSearch(args[1:], stdout, stderr)
+		}
+	}
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	urlFlag := fs.String("url", "", "loopback URL of the local daemon")
 	dataDirDefault, _ := defaultDataDir()
@@ -639,7 +653,7 @@ func runModel(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return errors.New("usage: ownbot model probe MODEL_CONFIG_ID [--url URL] [--data-dir DIR]")
+			return errors.New("usage: ownbot setup model probe MODEL_CONFIG_ID [--url URL] [--data-dir DIR]")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -652,15 +666,15 @@ func runModel(args []string, stdout, stderr io.Writer) error {
 		_, _ = io.WriteString(stdout, "Capability probe result (diagnostic only; it does not run an agent):\n")
 		return writeJSON(stdout, result)
 	default:
-		return fmt.Errorf("unknown model command %q; run `ownbot model --help`", args[0])
+		return fmt.Errorf("unknown model command %q; run `ownbot setup model --help`", args[0])
 	}
 }
 
 func printModelHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Model commands:
-  ownbot model list [--url URL] [--data-dir DIR]
-  ownbot model add --provider ollama|lm_studio|openai_compatible --model ID [--name NAME] [--base-url URL]
-  ownbot model probe [--url URL] [--data-dir DIR] MODEL_CONFIG_ID
+  ownbot setup model list [--url URL] [--data-dir DIR]
+  ownbot setup model add --provider ollama|lm_studio|openai_compatible --model ID [--name NAME] [--base-url URL]
+  ownbot setup model probe [--url URL] [--data-dir DIR] MODEL_CONFIG_ID
 
 Probe records observed capability checks only; this CLI does not attach a model to a running agent.
 No API key is collected. Hosted providers requiring credentials cannot be probed by this command.
@@ -716,7 +730,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return writeJSON(stdout, agent)
 	case "prompts":
 		if len(args) < 2 {
-			return errors.New("usage: ownbot agent prompts AGENT_ID")
+			return errors.New("usage: ownbot setup agent prompts AGENT_ID")
 		}
 		fs := flag.NewFlagSet("agent prompts", flag.ContinueOnError)
 		apiURL, dataDir := commonFlags(fs)
@@ -742,7 +756,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	case "prompt":
 		return runAgentPrompt(args[1:], stdout, stderr)
 	default:
-		return fmt.Errorf("unknown agent command %q; run `ownbot agent --help`", args[0])
+		return fmt.Errorf("unknown agent command %q; run `ownbot setup agent --help`", args[0])
 	}
 }
 
@@ -968,19 +982,19 @@ func runAgentPrompt(args []string, stdout, stderr io.Writer) error {
 		_, _ = fmt.Fprintf(stdout, "Restored prompt version %d as the current prompt metadata. No agent runtime was changed.\n", *version)
 		return writeJSON(stdout, result)
 	default:
-		return fmt.Errorf("unknown prompt command %q; run `ownbot agent --help`", args[0])
+		return fmt.Errorf("unknown prompt command %q; run `ownbot setup agent --help`", args[0])
 	}
 }
 
 func printAgentHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Agent commands:
-  ownbot agent list
-  ownbot agent run --id AGENT_ID --input TEXT
-  ownbot agent add --name NAME [--model MODEL_ID] [--prompt TEXT]
-  ownbot agent update --id ID [--enabled|--disabled] [--web-search=true|false] [--mcp=true|false] [--tool NAME] [--mcp-server ID]
-  ownbot agent prompts AGENT_ID
-  ownbot agent prompt set --id AGENT_ID --text PROMPT
-  ownbot agent prompt rollback --id AGENT_ID --version VERSION
+  ownbot setup agent list
+  ownbot setup agent run --id AGENT_ID --input TEXT
+  ownbot setup agent add --name NAME [--model MODEL_ID] [--prompt TEXT]
+  ownbot setup agent update --id ID [--enabled|--disabled] [--web-search=true|false] [--mcp=true|false] [--tool NAME] [--mcp-server ID]
+  ownbot setup agent prompts AGENT_ID
+  ownbot setup agent prompt set --id AGENT_ID --text PROMPT
+  ownbot setup agent prompt rollback --id AGENT_ID --version VERSION
 
 Agents created here are disabled. Configure and enable an agent before running it.
 Runs require a saved prompt and a model capability probe that passes the unrestricted threshold. MCP server IDs and tools must be connected and discovered first.
@@ -1054,7 +1068,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		if *transport != "stdio" && *transport != "streamable_http" {
 			return errors.New("--transport must be stdio or streamable_http")
 		}
-		if *transport == "streamable_http" {
+		if *transport == "streamable_http" && (len(tools)+len(readTools)+len(writeTools) > 0) {
 			if err := validateMCPToolClasses([]string(tools), []string(readTools), []string(writeTools)); err != nil {
 				return err
 			}
@@ -1076,6 +1090,10 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		}
 		_, _ = fmt.Fprintf(stdout, "Saved disabled metadata for %q. No provider connection or tool is active.\n", config.Name)
 		return writeJSON(stdout, config)
+	case "discover":
+		return runConnectDiscover(args[1:], stdout, stderr)
+	case "allow":
+		return runConnectAllow(args[1:], stdout, stderr)
 	case "connect", "disconnect", "authorize", "clear-auth":
 		fs := flag.NewFlagSet("connect "+args[0], flag.ContinueOnError)
 		apiURL, dataDir := commonFlags(fs)
@@ -1214,6 +1232,88 @@ func runPublicMCPConnect(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+func resolveMCPConfig(client *Client, selector string) (*mcpConfig, error) {
+	var configs []mcpConfig
+	if err := client.Do(backgroundContext(), "GET", "/api/mcp/servers", nil, &configs); err != nil {
+		return nil, err
+	}
+	requested := strings.TrimSpace(selector)
+	selector = requested
+	if service, ok := mcp.LookupService(selector); ok {
+		selector = service.Endpoint
+	}
+	for i := range configs {
+		if configs[i].ID == selector || configs[i].Endpoint == selector || strings.EqualFold(configs[i].Name, selector) {
+			return &configs[i], nil
+		}
+	}
+	return nil, fmt.Errorf("MCP connection %q was not found; run `ownbot connect list`", requested)
+}
+
+func runConnectDiscover(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("connect discover", flag.ContinueOnError)
+	apiURL, dataDir := commonFlags(fs)
+	if err := parseFlags(fs, args, stderr); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: ownbot connect discover [--url URL] [--data-dir DIR] SERVICE_OR_SERVER_ID")
+	}
+	client, err := clientFor(*apiURL, *dataDir)
+	if err != nil {
+		return err
+	}
+	config, err := resolveMCPConfig(client, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	var result struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	path := "/api/mcp/servers/" + urlPath(config.ID) + "/tools/discover"
+	if err := client.Do(backgroundContext(), "POST", path, map[string]any{}, &result); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(stdout, "Discovered %d tools for %s. Metadata only; no tools were called or enabled.\n", len(result.Tools), config.Name)
+	return writeJSON(stdout, result.Tools)
+}
+
+func runConnectAllow(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("connect allow", flag.ContinueOnError)
+	apiURL, dataDir := commonFlags(fs)
+	var readTools, writeTools stringList
+	fs.Var(&readTools, "read-tool", "explicit read-only tool name (repeatable)")
+	fs.Var(&writeTools, "write-tool", "explicit write tool name (repeatable; every call requires approval)")
+	if err := parseFlags(fs, args, stderr); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: ownbot connect allow [flags] SERVICE_OR_SERVER_ID")
+	}
+	client, err := clientFor(*apiURL, *dataDir)
+	if err != nil {
+		return err
+	}
+	config, err := resolveMCPConfig(client, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	reads, writes := []string(readTools), []string(writeTools)
+	if err := validateMCPToolClasses(append(append([]string(nil), reads...), writes...), reads, writes); err != nil && len(reads)+len(writes) > 0 {
+		return fmt.Errorf("invalid tool permissions: %w", err)
+	}
+	var result map[string]any
+	path := "/api/mcp/servers/" + urlPath(config.ID) + "/permissions"
+	if err := client.Do(backgroundContext(), "PATCH", path, map[string]any{"read_tools": reads, "write_tools": writes}, &result); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(stdout, "Saved %d read and %d write tools for %s. This does not grant tools to any agent. Write calls still require approval.\n", len(reads), len(writes), config.Name)
+	return writeJSON(stdout, result)
+}
+
 func validateMCPToolClasses(allowed, reads, writes []string) error {
 	if len(allowed) == 0 {
 		return errors.New("HTTP MCP requires an explicit --tool allowlist")
@@ -1261,6 +1361,8 @@ func printConnectHelp(w io.Writer) {
   ownbot connect notion|calendly [--ssh-target USER@HOST]
   ownbot connect list
   ownbot connect add --name NAME --transport streamable_http --endpoint URL
+  ownbot connect discover [flags] SERVICE_OR_SERVER_ID
+  ownbot connect allow [flags] SERVICE_OR_SERVER_ID
   ownbot connect connect SERVER_ID
   ownbot connect authorize [--ssh-target USER@HOST] SERVER_ID
   ownbot connect disconnect SERVER_ID
@@ -1268,8 +1370,8 @@ func printConnectHelp(w io.Writer) {
   ownbot connect remove SERVER_ID
 
 Google Calendar and Gmail sign-in are deferred pending local Google Cloud OAuth setup; see TODO.md.
-Use repeatable --tool, --read-tool, and --write-tool to save exact server tool names. stdio can be saved as metadata but cannot connect in this daemon.
-HTTP servers require every allowed tool to be classified as read or write; use disjoint classes.
+Use connect discover SERVICE_OR_SERVER_ID to review provider tool metadata without calling tools. Then use connect allow with explicit read/write classes; omitted tools stay blocked. Write calls always need approval. An agent must separately allow selected connected tools.
+For custom HTTP endpoints, connect add saves disabled metadata; discover and allow before connect. stdio can be saved as metadata but cannot connect in this daemon.
 Use connect notion or connect calendly to save/reuse disabled server metadata and start public-provider OAuth sign-in. The flow uses PKCE and a one-use loopback callback. Connect authorize SERVER_ID starts sign-in for an existing config; clear-auth removes a saved grant and requests provider revocation. No API keys are collected; connecting discovers tools but never calls them or grants them to agents.
 OAuth tokens stay in the private local OwnBot database and are not encrypted separately. When you run OwnBot over SSH, authorize prints the additional callback tunnel for that sign-in.
 `)
@@ -1319,7 +1421,7 @@ func shellQuote(value string) string {
 
 func runSearch(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(stdout, "Usage: ownbot search show [flags] | configure --endpoint URL [flags]")
+		_, _ = fmt.Fprintln(stdout, "Usage: ownbot setup search show [flags] | configure --endpoint URL [flags]")
 		return nil
 	}
 	fs := flag.NewFlagSet("search "+args[0], flag.ContinueOnError)
@@ -1353,7 +1455,7 @@ func runSearch(args []string, stdout, stderr io.Writer) error {
 		}
 		_, _ = fmt.Fprintf(stdout, "Configured %s. Search requests leave this device.\n", config.Provider)
 	default:
-		return fmt.Errorf("unknown search command %q; run `ownbot search --help`", args[0])
+		return fmt.Errorf("unknown search command %q; run `ownbot setup search --help`", args[0])
 	}
 	return writeJSON(stdout, config)
 }

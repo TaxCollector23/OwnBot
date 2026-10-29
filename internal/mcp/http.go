@@ -105,6 +105,29 @@ func (c *HTTPClient) Connect(ctx context.Context) error {
 func (c *HTTPClient) Tools(ctx context.Context) ([]Tool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	all, err := c.discoverToolsLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	allowed := allowedSet(c.AllowedTools)
+	out := make([]Tool, 0, len(all))
+	for _, t := range all {
+		if allowed[t.Name] {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// DiscoverTools returns provider metadata without applying a runtime allowlist.
+// It is intended for an owner-only permission review flow; it never calls a tool.
+func (c *HTTPClient) DiscoverTools(ctx context.Context) ([]Tool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.discoverToolsLocked(ctx)
+}
+
+func (c *HTTPClient) discoverToolsLocked(ctx context.Context) ([]Tool, error) {
 	if c.authRequired {
 		return nil, ErrAuthenticationRequired
 	}
@@ -143,14 +166,7 @@ func (c *HTTPClient) Tools(ctx context.Context) ([]Tool, error) {
 		seen[page.Next] = true
 		cursor = page.Next
 	}
-	allowed := allowedSet(c.AllowedTools)
-	out := make([]Tool, 0, len(all))
-	for _, t := range all {
-		if allowed[t.Name] {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return all, nil
 }
 func (c *HTTPClient) CallTool(ctx context.Context, name string, args json.RawMessage) (ToolResult, error) {
 	c.mu.Lock()

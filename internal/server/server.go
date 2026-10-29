@@ -226,6 +226,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/mcp/servers/{id}", s.revokeMCPServer)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/connect", s.connectMCP)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/disconnect", s.disconnectMCP)
+	s.mux.HandleFunc("POST /api/mcp/servers/{id}/tools/discover", s.discoverMCPTools)
+	s.mux.HandleFunc("PATCH /api/mcp/servers/{id}/permissions", s.updateMCPPermissions)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/oauth/start", s.startMCPOAuth)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/oauth/clear", s.clearMCPOAuth)
 	s.mux.HandleFunc("GET /api/tools", s.listTools)
