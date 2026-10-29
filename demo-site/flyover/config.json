@@ -1,0 +1,35 @@
+{
+  "url": "http://127.0.0.1:4173/",
+  "brand": "ownbot",
+  "logo": "./logo.png",
+  "title": { "line1": "Run locally.", "tail": "Not in the cloud." },
+  "hero": {
+    "section": ".hero",
+    "mockup": ".hero .terminal",
+    "tileAnchor": ".hero a.button.secondary",
+    "footerTitle": "#privacy h2"
+  },
+  "layers": [
+    { "sel": ".hero a.button.primary", "role": "button" },
+    { "sel": ".hero a.button.secondary", "role": "button" },
+    { "sel": ".hero .terminal", "role": "mockup" },
+    { "sel": ".install-step:nth-child(1) .install-command", "role": "photo" },
+    { "sel": ".install-step:nth-child(1)", "role": "card" },
+    { "sel": ".install-step:nth-child(2) .install-command", "role": "photo" },
+    { "sel": ".install-step:nth-child(2)", "role": "card" },
+    { "sel": ".install-step:nth-child(3) .install-command", "role": "photo" },
+    { "sel": ".install-step:nth-child(3)", "role": "card" },
+    { "sel": ".feature:nth-child(1)", "role": "card" },
+    { "sel": ".feature:nth-child(2)", "role": "card" },
+    { "sel": ".feature:nth-child(3)", "role": "testimonial" },
+    { "sel": ".privacy-copy article:nth-child(1)", "role": "card" },
+    { "sel": ".privacy-copy article:nth-child(2)", "role": "card" },
+    { "sel": ".site-nav .nav-cta", "role": "flychip" }
+  ],
+  "hide": [],
+  "waitFor": [],
+  "css": "",
+  "routes": [],
+  "videoTime": 1.0,
+  "track": { "file": "", "drop": "auto" }
+}

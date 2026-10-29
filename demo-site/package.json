@@ -1,0 +1,9 @@
+{
+  "name": "ownbot-demo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Beautified ownbot docs + demo videos",
+  "scripts": {
+    "start": "python3 -m http.server 4173"
+  }
+}

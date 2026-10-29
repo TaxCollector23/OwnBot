@@ -1,0 +1,11 @@
+.vercel/
+node_modules/
+flyover/node_modules/
+flyover/capture/
+flyover/stills/
+flyover/*.mp4
+flyover/inspect.png
+flyover/dom.txt
+flyover/cam.json
+flyover/audio/
+flyover/track.mp3

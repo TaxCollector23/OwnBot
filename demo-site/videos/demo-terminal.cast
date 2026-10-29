@@ -1,0 +1,12 @@
+{"version":2,"width":100,"height":32,"timestamp":1793240061,"command":"bash demo-site/scripts/demo-session.sh","env":{"SHELL":"/bin/zsh"}}
+[0.770443, "o", "\u001b[2J\u001b[H# ownbot CLI smoke test\r\n# Disposable state. No model installed or run.\r\n\r\n"]
+[2.779738, "o", "$ ownbot help\r\n"]
+[2.811907, "o", "Usage: ownbot <command>\r\n\r\nCommands:\r\n\r\n  setup         Detect local models, probe one, and create a tool-free agent\r\n  connect       Configure public MCP integrations (disabled by default)\r\n  daemon start  Start the local daemon and open its dashboard\r\n  daemon stop   Stop the local daemon\r\n  daemon pair|devices  Pair and manage dashboard devices\r\n  daemon install|uninstall|status  Manage the current user's login service\r\n  inspect       Review hardware, model probes, agents, and tool permissions\r\n  help          Show this list\r\n\r\nUse ownbot <command> --help for command options. Run without a command to enter the task harness.\r\n"]
+[8.814426, "o", "\u001b[2J\u001b[H# Inspect the disposable daemon\r\n\r\n$ export OWNBOT_API_URL=http://127.0.0.1:19065\r\n$ ownbot inspect --data-dir \"$DEMO_STATE\"\r\n"]
+[8.827579, "o", "{\r\n  \"agents\": [],\r\n  \"daemon\": {\r\n    \"active_automations\": 0,\r\n    \"agents\": 0,\r\n    \"api_token_required\": true,\r\n    \"ok\": true,\r\n    \"pending_approvals\": 0,\r\n    \"queued_jobs\": 0,\r\n    \"service\": \"ownbot\",\r\n    \"version\": \"development\"\r\n  },\r\n  \"mcp_integrations\": [],\r\n  \"models\": [],\r\n  \"tool_permissions\": []\r\n}\r\n"]
+[13.835459, "o", "\r\n$ ownbot connect list --data-dir \"$DEMO_STATE\"\r\n"]
+[13.856804, "o", "[]\r\n"]
+[16.867454, "o", "\r\n$ curl -s -o /dev/null -w \"dashboard HTTP %{http_code}\\n\" \"$OWNBOT_API_URL/dashboard\"\r\n"]
+[16.89058, "o", "dashboard HTTP 200\r\n"]
+[16.891266, "o", "\r\n# CLI and dashboard reachable. No model inference tested.\r\n"]
+[21.911688, "x", "0"]

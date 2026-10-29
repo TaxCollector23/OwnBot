@@ -1,5 +1,9 @@
 # ownbot
 
+[Demo](https://ownbot-demo.vercel.app/demos) · [Docs](https://taxcollector23.github.io/OwnBot/)
+
+Sources: [CLI and daemon](cmd/) · [Website and videos](demo-site/) · [Recording scripts](demo-site/scripts/)
+
 Configure agents in the CLI. Use the dashboard to run tasks, review results, and approve writes. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
 
 ## Install from source
@@ -9,7 +13,7 @@ Requires Node.js 18+ and Go 1.24+.
 ```sh
 git clone https://github.com/TaxCollector23/OwnBot.git
 cd OwnBot
-npm install -g .
+npm install -g . --allow-scripts=ownbot
 ownbot setup
 ```
 

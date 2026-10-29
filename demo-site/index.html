@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f2ee">
+  <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+  <title>ownbot — local agents</title>
+  <meta name="description" content="Run agents on your own computer with ownbot.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    :root{--paper:#f3f2ee;--ink:#121212;--blue:#2340f0;--muted:#575750;--line:#c9c8c0;--dark-line:#3a3a37;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',Arial,sans-serif}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--sans);-webkit-font-smoothing:antialiased}a{color:inherit}a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}.skip-link{position:absolute;top:-80px;left:16px;z-index:10;padding:10px 14px;background:var(--ink);color:var(--paper)}.skip-link:focus{top:10px}.wrap{width:min(100% - 48px,1120px);margin-inline:auto}.mono{font-family:var(--mono)}
+    .site-header{border-bottom:1px solid var(--line)}.header-inner{min-height:78px;display:flex;align-items:center;justify-content:space-between;gap:24px}.logo{font:500 20px/1.2 var(--mono);text-decoration:none;letter-spacing:-.04em}.site-nav{display:flex;align-items:center;gap:24px;font-size:14px}.site-nav a{text-decoration:none}.site-nav .nav-cta{padding:10px 15px;background:var(--ink);color:var(--paper)}
+    .hero{border-bottom:1px solid var(--ink)}.hero-inner{min-height:570px;padding-block:76px 84px;display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.9fr);align-items:center;gap:clamp(40px,7vw,90px)}.eyebrow{color:var(--muted);font:500 11px/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase}.hero h1{max-width:650px;margin:18px 0;font-size:clamp(48px,6vw,76px);line-height:.99;letter-spacing:-.065em;font-weight:500}.hero-lead{max-width:540px;color:var(--blue);font-size:clamp(21px,2.4vw,29px);line-height:1.25;font-weight:500}.hero-note{max-width:520px;margin-top:18px;color:var(--muted);font-size:15px}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:0 18px;border:1px solid var(--ink);font-size:14px;font-weight:500;text-decoration:none}.button.primary{border-color:var(--blue);background:var(--blue);color:#fff}.button.secondary{background:transparent;color:var(--ink)}
+    .terminal{background:var(--ink);color:var(--paper);font:13px/1.65 var(--mono);box-shadow:10px 10px 0 #d9d8d1}.terminal-head{display:flex;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--dark-line);color:#c9c8c0;font-size:10px;letter-spacing:.07em}.terminal-body{padding:22px 20px}.terminal-label{color:#aaa99f;font-size:10px;text-transform:uppercase;letter-spacing:.09em}.terminal-command{margin:8px 0 18px;overflow-wrap:anywhere}.terminal-command .prompt{color:#8fa0ff}.terminal-state{padding-top:14px;border-top:1px solid var(--dark-line);color:#c9c8c0}.terminal-state div{display:flex;justify-content:space-between;gap:12px;margin:5px 0}.terminal-state span:last-child{color:#f3f2ee;text-align:right}
+    .section{border-bottom:1px solid var(--ink)}.section-inner{padding-block:clamp(54px,7vw,84px)}.section h2{margin:10px 0 28px;font-size:clamp(32px,4vw,46px);line-height:1.05;letter-spacing:-.05em;font-weight:500}.install-grid,.feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}.install-step,.feature{min-width:0;padding-top:14px;border-top:1px solid var(--line)}.step-number{color:var(--blue);font:500 13px var(--mono)}.install-step h3,.feature h3{margin:9px 0;font-size:18px;font-weight:500}.install-step p,.feature p,.privacy-copy p{color:#494944;font-size:14px;line-height:1.6}.install-command{display:block;margin-top:12px;padding:12px;background:#e9e8e2;color:var(--ink);font:12px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}.requirements{margin-top:16px;color:var(--muted);font-size:12px}.feature-grid{row-gap:34px}.privacy-layout{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:60px}.privacy-copy{display:grid;grid-template-columns:1fr 1fr;gap:24px}.privacy-copy article+article{padding-left:24px;border-left:1px solid var(--line)}.privacy-copy h3{margin:0 0 8px;font-size:17px;font-weight:500}.note-plan{margin-top:18px;color:var(--muted);font-size:13px}.footer{padding-block:22px}.footer-inner{display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:12px}.footer-inner a{text-decoration:none;color:var(--ink)}
+    @media(max-width:760px){.hero-inner{min-height:auto;padding-block:56px 64px;grid-template-columns:1fr;gap:36px}.terminal{width:100%;max-width:580px}.install-grid,.feature-grid{grid-template-columns:1fr 1fr}.privacy-layout{grid-template-columns:1fr;gap:24px}}
+    @media(max-width:560px){.wrap{width:calc(100% - 32px)}.header-inner{min-height:64px}.site-nav{gap:11px}.site-nav a:not(.nav-cta){display:none}.site-nav .nav-cta{padding:9px 11px;font-size:12px}.hero-inner{padding-block:46px 52px}.hero h1{font-size:clamp(44px,13vw,60px)}.hero-lead{font-size:20px}.terminal{font-size:12px;box-shadow:6px 6px 0 #d9d8d1}.terminal-head{padding-inline:13px;font-size:9px}.terminal-body{padding:18px 14px}.install-grid,.feature-grid,.privacy-copy{grid-template-columns:1fr;gap:20px}.privacy-copy article+article{padding:18px 0 0;border-top:1px solid var(--line);border-left:0}.footer-inner{flex-direction:column;gap:8px}}
+    .hero h1{max-width:690px;margin:0 0 22px}.hero-crossed{position:relative;white-space:nowrap}.hero-crossed::before,.hero-crossed::after{position:absolute;inset:49% -3% auto;height:3px;background:#d33b33;content:"";transform:rotate(-7deg)}.hero-crossed::after{height:2px;transform:rotate(6deg)}.hero-local{color:var(--blue)}.hero-note{font-size:16px}.terminal{font-size:14px}.terminal-body{padding:24px 22px}.terminal-label{color:#c9c8c0;font-size:14px;text-transform:none;letter-spacing:0}.terminal-command{margin:7px 0 18px}.terminal-rule{margin:22px 0;border-top:1px solid var(--dark-line)}.section h2{margin-top:0}.install-step p,.feature p,.privacy-copy p{font-size:15px}.install-command{font-size:14px}.requirements,.note-plan,.footer-inner{font-size:15px}.eyebrow{display:none}
+    @media(max-width:560px){.hero h1{font-size:clamp(43px,12vw,60px)}.terminal{font-size:12px}.terminal-body{padding:18px 14px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a href="#top" class="logo">ownbot</a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#install">Install</a>
+        <a href="#features">What works</a>
+        <a href="#privacy">Data</a>
+        <a href="/demos/">Demos</a>
+        <a href="/demos/" class="nav-cta">Watch demos</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap hero-inner">
+        <div>
+          <h1 aria-label="Agents that run locally.">Agents that run <span class="hero-crossed" aria-hidden="true">in the cloud</span> <span class="hero-local">locally.</span></h1>
+          <p class="hero-lead">Build and run agents on your own computer.</p>
+          <p class="hero-note">Set up local models once. Pair a browser on the same private network when you need it.</p>
+          <div class="actions"><a href="#install" class="button primary">Install from source</a><a href="/demos/" class="button secondary">Watch demos</a></div>
+        </div>
+        <div class="terminal" aria-label="Install and set up ownbot from source">
+          <div class="terminal-body">
+            <div class="terminal-label">Install from source</div>
+            <div class="terminal-command"><span class="prompt">$</span> git clone https://github.com/TaxCollector23/OwnBot.git</div>
+            <div class="terminal-command"><span class="prompt">$</span> cd OwnBot &amp;&amp; npm install -g . --allow-scripts=ownbot</div>
+            <div class="terminal-rule"></div>
+            <div class="terminal-label">Set up a local agent</div>
+            <div class="terminal-command"><span class="prompt">$</span> ownbot setup</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="section" id="install">
+      <div class="wrap section-inner">
+        <h2>Install and start ownbot.</h2>
+        <div class="install-grid">
+          <article class="install-step">
+            <span class="step-number">01</span>
+            <h3>Install from source</h3>
+            <p>Run these commands in a terminal:</p>
+            <code class="install-command">git clone https://github.com/TaxCollector23/OwnBot.git
+cd OwnBot
+npm install -g . --allow-scripts=ownbot</code>
+            <p class="requirements">Needs Node.js 18+ and Go 1.24+.</p>
+          </article>
+          <article class="install-step">
+            <span class="step-number">02</span>
+            <h3>Set up your agent</h3>
+            <p>ownbot detects an installed model and creates a text-only agent.</p>
+            <code class="install-command">ownbot setup</code>
+          </article>
+          <article class="install-step">
+            <span class="step-number">03</span>
+            <h3>Open the dashboard</h3>
+            <p>Configure in the terminal. Use the dashboard to run tasks, review results, and approve actions.</p>
+            <a class="install-command" href="http://127.0.0.1:8765/dashboard">http://127.0.0.1:8765/dashboard</a>
+          </article>
+        </div>
+      </div>
+    </section>
+    <section class="section" id="features">
+      <div class="wrap section-inner">
+        <h2>What you can do.</h2>
+        <div class="feature-grid">
+          <article class="feature"><h3>Configure local models</h3><p>Save an Ollama or LM Studio endpoint and probe its capabilities before a run.</p></article>
+          <article class="feature"><h3>Set up agents</h3><p>Configure prompts, tools, and limits in the CLI. Allow tools explicitly.</p></article>
+          <article class="feature"><h3>Run and review</h3><p>Start a run on this computer. Inspect its output, steps, and pending approvals.</p></article>
+        </div>
+      </div>
+    </section>
+    <section class="section" id="privacy">
+      <div class="wrap section-inner privacy-layout">
+        <div><h2>Runs stay on this computer.</h2></div>
+        <div class="privacy-copy">
+          <article><h3>Stored locally</h3><p>The daemon keeps its configuration and run history on this computer.</p></article>
+          <article><h3>Sent to connected services</h3><p>Model, search, or MCP requests go to the endpoint you configure. Those services receive the data needed to handle each request.</p></article>
+        </div>
+        <p class="note-plan">Browser pairing works on the same private network. Public internet and cellular access are not supported.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="footer">
+    <div class="wrap footer-inner"><span class="mono">ownbot</span><a href="/demos/">Demos &amp; docs</a><a href="https://taxcollector23.github.io/OwnBot/">Documentation</a></div>
+  </footer>
+</body>
+</html>

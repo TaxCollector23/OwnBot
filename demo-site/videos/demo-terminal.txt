@@ -1,0 +1,46 @@
+# ownbot CLI smoke test
+# Disposable state. No model installed or run.
+
+$ ownbot help
+Usage: ownbot <command>
+
+Commands:
+
+  setup         Detect local models, probe one, and create a tool-free agent
+  connect       Configure public MCP integrations (disabled by default)
+  daemon start  Start the local daemon and open its dashboard
+  daemon stop   Stop the local daemon
+  daemon pair|devices  Pair and manage dashboard devices
+  daemon install|uninstall|status  Manage the current user's login service
+  inspect       Review hardware, model probes, agents, and tool permissions
+  help          Show this list
+
+Use ownbot <command> --help for command options. Run without a command to enter the task harness.
+# Inspect the disposable daemon
+
+$ export OWNBOT_API_URL=http://127.0.0.1:19065
+$ ownbot inspect --data-dir "$DEMO_STATE"
+{
+  "agents": [],
+  "daemon": {
+    "active_automations": 0,
+    "agents": 0,
+    "api_token_required": true,
+    "ok": true,
+    "pending_approvals": 0,
+    "queued_jobs": 0,
+    "service": "ownbot",
+    "version": "development"
+  },
+  "mcp_integrations": [],
+  "models": [],
+  "tool_permissions": []
+}
+
+$ ownbot connect list --data-dir "$DEMO_STATE"
+[]
+
+$ curl -s -o /dev/null -w "dashboard HTTP %{http_code}\n" "$OWNBOT_API_URL/dashboard"
+dashboard HTTP 200
+
+# CLI and dashboard reachable. No model inference tested.
