@@ -271,7 +271,7 @@ test('pairing fragment opens the name form and removes the secret from browser h
   page.on('request', (request) => {
     if (new URL(request.url()).pathname === '/api/devices/pair' && request.method() === 'POST') pairExchanges += 1;
   });
-  await page.goto('about:blank');
+  await page.withExpectedNavigation(() => page.goto('about:blank'));
   await page.goto(`${daemon.baseURL}/dashboard#pair=browser-fragment-fixture`);
   await expect(page.locator('#pair-panel')).toBeVisible();
   await expect(page.locator('#pair-device-name')).toBeFocused();
@@ -390,13 +390,13 @@ test('expired owner session recovers through a new real one-time bootstrap link'
   await launch(daemon, testInfo);
   page.expectDaemonRestart(false);
   page.allowExpiredOwnerSession();
-  await page.reload();
+  await page.withExpectedNavigation(() => page.reload());
   await expect(page.locator('#token-panel')).toBeVisible();
   await expect(page.locator('#page-message')).toContainText('owner session expired or was rejected');
   expect(await page.evaluate(() => sessionStorage.getItem('ownbot.api-token'))).toBeNull();
 
   const ticket = await freshBootstrap(daemon);
-  await page.goto('about:blank');
+  await page.withExpectedNavigation(() => page.goto('about:blank'));
   await page.goto(`${baseURL}/dashboard#bootstrap=${encodeURIComponent(ticket)}`);
   await expect(page.locator('#token-panel')).toBeHidden();
   await expect(page.locator('#composer-empty')).toBeVisible();

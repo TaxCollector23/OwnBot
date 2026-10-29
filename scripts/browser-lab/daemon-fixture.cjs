@@ -107,6 +107,7 @@ const test = base.extend({
     const expectedHTTP = new Set();
     let allowExpiredOwnerSession = false;
     let restartingDaemon = false;
+    let expectedNavigationAborts = false;
     page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
     page.on('console', (message) => {
       if (message.type() !== 'error') return;
@@ -129,11 +130,20 @@ const test = base.extend({
       const failure = request.failure()?.errorText || 'unknown';
       const url = new URL(request.url());
       if (restartingDaemon && url.origin === daemon.baseURL && failure.includes('ERR_CONNECTION_REFUSED')) return;
+      if (expectedNavigationAborts && url.origin === daemon.baseURL && url.pathname.startsWith('/api/') && failure.includes('ERR_ABORTED')) return;
       requestFailures.push(`${request.method()} ${url.pathname}: ${failure}`);
     });
     page.allowExpectedHTTPError = (method, pathname, status) => expectedHTTP.add(`${method} ${pathname} ${status}`);
     page.allowExpiredOwnerSession = () => { allowExpiredOwnerSession = true; };
     page.expectDaemonRestart = (expected) => { restartingDaemon = Boolean(expected); };
+    page.withExpectedNavigation = async (navigate) => {
+      expectedNavigationAborts = true;
+      try { return await navigate(); }
+      finally {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expectedNavigationAborts = false;
+      }
+    };
     const ticket = await freshBootstrap(daemon);
     await page.goto(`${daemon.baseURL}/dashboard#bootstrap=${encodeURIComponent(ticket)}`);
     await expect(page.locator('#token-panel')).toBeHidden();
