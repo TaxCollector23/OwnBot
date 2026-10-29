@@ -1,6 +1,6 @@
 # ownbot
 
-Run a local agent daemon and manage it from its dashboard or CLI. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
+Configure agents in the CLI. Use the dashboard to run tasks, review results, and approve writes. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
 
 ## Install from source
 

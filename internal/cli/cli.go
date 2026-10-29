@@ -592,7 +592,7 @@ func runModel(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("model list does not accept positional arguments")
+			return errors.New("setup model list does not accept positional arguments")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -614,10 +614,10 @@ func runModel(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("model add does not accept positional arguments")
+			return errors.New("setup model add does not accept positional arguments")
 		}
 		if strings.TrimSpace(*modelID) == "" {
-			return errors.New("model add requires --model")
+			return errors.New("setup model add requires --model")
 		}
 		if *provider != "ollama" && *provider != "lm_studio" && *provider != "openai_compatible" {
 			return errors.New("provider must be ollama, lm_studio, or openai_compatible")
@@ -680,7 +680,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("agent list does not accept positional arguments")
+			return errors.New("setup agent list does not accept positional arguments")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -701,7 +701,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return err
 		}
 		if strings.TrimSpace(*name) == "" {
-			return errors.New("agent add requires --name")
+			return errors.New("setup agent add requires --name")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -724,7 +724,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("agent prompts does not accept extra positional arguments")
+			return errors.New("setup agent prompts does not accept extra positional arguments")
 		}
 		client, err := clientFor(*apiURL, *dataDir)
 		if err != nil {
@@ -755,10 +755,10 @@ func runAgentStart(args []string, stdin io.Reader, stdout, stderr io.Writer) err
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("agent run does not accept positional arguments")
+		return errors.New("setup agent run does not accept positional arguments")
 	}
 	if *id == "" || *input == "" {
-		return errors.New("agent run requires --id and --input")
+		return errors.New("setup agent run requires --id and --input")
 	}
 	if *input == "-" {
 		contents, err := io.ReadAll(io.LimitReader(stdin, 64001))
@@ -804,7 +804,7 @@ func runAgentUpdate(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("agent update does not accept positional arguments")
+		return errors.New("setup agent update does not accept positional arguments")
 	}
 	if *id == "" || (*enabled && *disabled) {
 		return errors.New("agent update requires --id and cannot use both --enabled and --disabled")
@@ -927,7 +927,7 @@ func runAgentPrompt(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("agent prompt set does not accept positional arguments")
+			return errors.New("setup agent prompt set does not accept positional arguments")
 		}
 		if *id == "" || strings.TrimSpace(*prompt) == "" {
 			return errors.New("agent prompt set requires --id and --text")
@@ -951,7 +951,7 @@ func runAgentPrompt(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("agent prompt rollback does not accept positional arguments")
+			return errors.New("setup agent prompt rollback does not accept positional arguments")
 		}
 		if *id == "" || *version < 1 {
 			return errors.New("agent prompt rollback requires --id and a positive --version")
@@ -1329,7 +1329,7 @@ func runSearch(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("search %s does not accept positional arguments", args[0])
+		return fmt.Errorf("setup search %s does not accept positional arguments", args[0])
 	}
 	client, err := clientFor(*apiURL, *dataDir)
 	if err != nil {
@@ -1339,7 +1339,7 @@ func runSearch(args []string, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "show":
 		if *endpoint != "" {
-			return errors.New("search show does not accept --endpoint")
+			return errors.New("setup search show does not accept --endpoint")
 		}
 		if err := client.Do(backgroundContext(), "GET", "/api/search", nil, &config); err != nil {
 			return err

@@ -11,134 +11,51 @@ const screenshot = async (page, testInfo, name, fullPage = true) => page.screens
   maskColor:'#6e6e68',
 });
 
-async function openSettingsCategory(page, category) {
-  const dialog = page.locator('#settings-drawer');
-  if (!(await dialog.evaluate((node) => node.open))) await page.locator('#settings-toggle').click();
-  const button = page.locator(`[data-settings-category="${category}"]`);
-  if (!(await button.getAttribute('aria-current'))) await button.click();
-  await expect(page.locator(`[data-settings-panel="${category}"]`)).toBeVisible();
-  await expectSettingsTitleVisible(page);
+async function ownerAPI(daemon, path, {method = 'GET', body} = {}) {
+  const response = await fetch(`${daemon.baseURL}${path}`, {
+    method,
+    headers:{Authorization:`Bearer ${daemon.ownerToken}`, Accept:'application/json', ...(body === undefined ? {} : {'Content-Type':'application/json'})},
+    ...(body === undefined ? {} : {body:JSON.stringify(body)}),
+  });
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.json()).error || ''; } catch {}
+    throw new Error(`${method} ${path} failed (${response.status}) ${detail}`);
+  }
+  if (response.status === 204) return null;
+  return response.json();
 }
 
-async function expectSettingsTitleVisible(page) {
-  const title = page.locator('#settings-heading');
-  const measure = () => title.evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    const dialog = node.closest('dialog');
-    const header = node.closest('.settings-dialog-header').getBoundingClientRect();
-    return {top:rect.top,bottom:rect.bottom,height:rect.height,headerTop:header.top,headerBottom:header.bottom,dialogTop:dialog.getBoundingClientRect().top,dialogScrollTop:dialog.scrollTop,windowScrollY:scrollY,viewport:innerHeight};
-  });
-  try {
-    await expect.poll(async () => (await measure()).top, {
-      message:'Settings title stays below the viewport top after opening or changing categories',
-    }).toBeGreaterThanOrEqual(0);
-  } catch (error) {
-    throw new Error(`${error.message}\nSettings geometry: ${JSON.stringify(await measure())}`);
-  }
-  const bounds = await measure();
-  expect(bounds.height, 'Settings title has a visible box').toBeGreaterThan(0);
-  expect(bounds.top, 'Settings title is not clipped above the viewport').toBeGreaterThanOrEqual(0);
-  expect(bounds.bottom, 'Settings title is fully inside the viewport').toBeLessThanOrEqual(bounds.viewport);
-}
-
-async function setUpModelAgent(page) {
-  await page.locator('#add-model-empty').click();
-  await expect(page.locator('#settings-drawer')).toHaveJSProperty('open', true);
-  await expectSettingsTitleVisible(page);
-  await expect(page.locator('[data-settings-category="models"]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('#model-id')).toBeFocused();
-  await page.locator('#model-id').fill('browser-fixture-model');
-  // Exercise real daemon validation and the visible error path before the valid save.
-  await page.locator('#model-base-url').evaluate((input) => { input.value = 'http://example.com/v1'; });
-  page.allowExpectedHTTPError('POST', '/api/models', 400);
-  const rejectedModelResponse = page.waitForResponse((response) => {
-    const request = response.request();
-    return new URL(response.url()).pathname === '/api/models' && request.method() === 'POST';
-  });
-  await page.getByRole('button', {name:'Save model'}).click();
-  const rejected = await rejectedModelResponse;
-  let rejection = `status=${rejected.status()}`;
-  try { rejection += ` error=${(await rejected.json()).error || 'unknown'}`; } catch {}
-  expect(rejected.status(), `check=real_model_configuration_rejection ${rejection}`).toBe(400);
-  await expect(page.locator('#page-message')).toContainText('Could not save model configuration: HTTP model endpoints must use localhost or a loopback IP');
-  await expect(page.locator('#models-list')).toContainText('No local models configured');
-  await page.locator('#model-base-url').evaluate((input) => { input.value = 'http://127.0.0.1:11434/v1'; });
-
-  const createModelResponse = page.waitForResponse((response) => {
-    const request = response.request();
-    return new URL(response.url()).pathname === '/api/models' && request.method() === 'POST';
-  });
-  await page.getByRole('button', {name:'Save model'}).click();
-  const modelResponse = await createModelResponse;
-  if (!modelResponse.ok()) {
-    let reason = `status=${modelResponse.status()}`;
-    try { reason += ` error=${(await modelResponse.json()).error || 'unknown'}`; } catch {}
-    throw new Error(`check=real_model_configuration ${reason}`);
-  }
-  await expect(page.locator('#models-list')).toContainText('browser-fixture-model');
-  const modelCard = page.locator('[data-model-id]').first();
-  const modelID = await modelCard.getAttribute('data-model-id');
-  await modelCard.locator('[data-model-probe]').click();
-  await expect(modelCard.locator('.probe-result')).toContainText('Observed score: 100/100', {timeout:30_000});
-
-  await openSettingsCategory(page, 'agents');
-  await page.locator('#new-agent-button').click();
-  await page.locator('#agent-name').fill('Browser fixture agent');
-  await page.locator('#agent-model').fill(modelID);
-  await page.getByRole('button', {name:'Create disabled agent'}).click();
-  const agent = page.locator('#agents-list [data-agent-id]').first();
-  await expect(agent).toContainText('Browser fixture agent');
-  await agent.locator('[data-agent-enabled]').click();
+async function setUpModelAgent(page, daemon) {
+  const model = await ownerAPI(daemon, '/api/models', {method:'POST', body:{provider:'ollama', model:'browser-fixture-model', base_url:'http://127.0.0.1:11434/v1'}});
+  const probe = await ownerAPI(daemon, `/api/models/${encodeURIComponent(model.id)}/probe`, {method:'POST', body:{}});
+  if (probe.probe?.score !== 100) throw new Error(`check=fixture_model_probe score=${probe.probe?.score}`);
+  const agent = await ownerAPI(daemon, '/api/agents', {method:'POST', body:{name:'Browser fixture agent', model:model.id, enabled:true, max_steps:8, max_tokens:4096, timeout_seconds:120}});
+  await page.locator('#refresh-button').click();
   await expect(page.locator('#task-form')).toBeVisible();
-  const agentID = await agent.getAttribute('data-agent-id');
-  return {agent, agentID, modelID};
+  await expect(page.locator('#task-input')).toBeEnabled();
+  return {agentID:agent.id, modelID:model.id};
 }
 
-async function savePrompt(page, agent, prompt, version) {
-  await openSettingsCategory(page, 'agents');
-  await agent.locator('[data-prompt-edit]').click();
-  const editor = agent.locator('.prompt-form textarea');
-  await expect(editor).toBeVisible();
-  await editor.fill(prompt);
-  await agent.locator('.prompt-form button[type="submit"]').click();
-  await expect(page.locator('#page-message')).toHaveText(`Prompt version ${version} saved.`);
-  await expect(agent.locator('.prompt-form')).toBeHidden();
-  await expect(agent).toContainText(`Prompt version ${version}`);
+async function savePrompt(daemon, agentID, prompt, version) {
+  const result = await ownerAPI(daemon, `/api/agents/${encodeURIComponent(agentID)}/prompts`, {method:'POST', body:{prompt}});
+  expect(result.version).toBe(version);
 }
 
-async function createMCPConnection(page) {
-  await openSettingsCategory(page, 'connections');
-  await page.locator('#new-mcp-button').click();
-  await page.locator('#mcp-name').fill('Browser fixture notes');
-  await page.locator('#mcp-endpoint').fill('http://127.0.0.1:11435/mcp');
-  await page.locator('#mcp-allowed-tools').fill('create_note');
-  await page.locator('#mcp-read-tools').fill('');
-  await page.locator('#mcp-write-tools').fill('create_note');
-  await page.getByRole('button', {name:'Save disabled config'}).click();
-  const server = page.locator('#mcp-list .mcp-card').first();
-  await expect(server).toContainText('Browser fixture notes');
-  await server.locator('[data-mcp-action="connect"]').click();
-  await expect(server).toContainText('Connected in this daemon session', {timeout:15_000});
-  await expect(server.locator('.mcp-discovered-tools')).toContainText('create_note');
+async function createMCPConnection(daemon) {
+  const server = await ownerAPI(daemon, '/api/mcp/servers', {method:'POST', body:{name:'Browser fixture notes', transport:'streamable_http', endpoint:'http://127.0.0.1:11435/mcp', allowed_tools:['create_note'], read_tools:[], write_tools:['create_note']}});
+  await ownerAPI(daemon, `/api/mcp/servers/${encodeURIComponent(server.id)}/connect`, {method:'POST', body:{}});
   return server;
 }
 
-async function configureWriteTool(page, agent) {
-  await openSettingsCategory(page, 'agents');
-  await agent.locator('[data-agent-tools-edit]').click();
-  const form = agent.locator('.agent-capability-form');
-  await expect(form).toBeVisible();
-  await form.locator('input[name="mcp_enabled"]').check();
-  await form.locator('input[name="mcp_server"]').first().check();
-  await expect(form.locator('input[name="tool"]').first()).toBeVisible();
-  await form.locator('input[name="tool"]').first().check();
-  await form.getByRole('button', {name:'Save capabilities'}).click();
-  await expect(agent).toContainText('MCP: on');
+async function configureWriteTool(daemon, agentID, serverID) {
+  const tools = await ownerAPI(daemon, '/api/tools');
+  const tool = tools.find((item) => item.provider_tool === 'create_note');
+  if (!tool) throw new Error('check=fixture_mcp_tool_registered');
+  await ownerAPI(daemon, `/api/agents/${encodeURIComponent(agentID)}`, {method:'PATCH', body:{mcp_enabled:true, tools:[tool.name], mcp_servers:[serverID]}});
 }
 
 async function runTask(page, input) {
-  const settings = page.locator('#settings-drawer');
-  if (await settings.evaluate((node) => node.open)) await page.locator('#settings-close').click();
   await page.locator('#task-input').fill(input);
   await page.locator('#start-task-button').click();
 }
@@ -180,88 +97,55 @@ async function pairThroughPinnedTLS(runtime, secret, name, expectedStatus = 201)
   return result;
 }
 
-test('real owner bootstrap, empty workspace, screenshots, and responsive controls', async ({ownerPage}, testInfo) => {
+test('real owner bootstrap, task setup guide, screenshots, and responsive controls', async ({ownerPage}, testInfo) => {
   const page = ownerPage;
   await screenshot(page, testInfo, `home-${testInfo.project.name}.png`);
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.locator('#composer-empty')).toBeVisible();
-  await expect(page.locator('#composer-empty button')).toHaveCount(1);
   await expect(page.locator('#token-panel')).toBeHidden();
-  await expect(page.locator('#token-form')).toBeHidden();
-  await expect(page.locator('#api-token')).toBeHidden();
-  await expect(page.locator('#agents-list')).toContainText('No agents yet');
-  await expect(page.locator('#models-list')).toContainText('No local models configured');
-  await expect(page.locator('.eyebrow:visible')).toHaveCount(0);
-  await expect(page.locator('.live-dot:visible')).toHaveCount(0);
-  await expect(page.getByText(/localhost responding|local workspace/i)).toHaveCount(0);
-  await expect(page.locator('.status-facts:visible')).toHaveCount(0);
-  await expect(page.locator('.item-tag:visible, .count-label:visible, .state-pill:visible')).toHaveCount(0);
-  await expect(page.locator('#task-heading')).toHaveText('New task');
-  await expect(page.locator('#task-form')).toBeVisible();
-  await expect(page.locator('#task-agent')).toBeDisabled();
-  await expect(page.locator('#task-input')).toBeDisabled();
-  await expect(page.locator('#start-task-button')).toBeDisabled();
-  await expect(page.locator('#composer-state')).toHaveText('A local model is required to run a task.');
-  await expect(page.locator('#composer-empty')).not.toContainText('Add a local model before creating an agent run.');
+  await expect(page.locator('#composer-empty')).toBeVisible();
+  await expect(page.locator('#composer-empty code')).toHaveText('ownbot setup');
+  await expect(page.locator('#recommendations-heading')).toBeVisible();
+  await expect(page.locator('#task-form')).toBeHidden();
+  await expect(page.locator('#run-output-panel')).toBeHidden();
+  await expect(page.locator('#task-input')).toHaveCount(1);
+  await expect(page.locator('#api-token, #model-form, #agent-form, #mcp-form')).toHaveCount(0);
+  await expect(page.locator('#settings-toggle, #settings-drawer')).toHaveCount(0);
+  await expect(page.locator('#runs-list')).toContainText('No runs yet.');
   await page.keyboard.press('Tab');
   await expect(page.locator('.skip-link')).toBeFocused();
   await page.evaluate(() => document.activeElement.blur());
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(testInfo.project.use.viewport.width);
-  await page.locator('#add-model-empty').click();
-  await expect(page.locator('#settings-toggle')).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('#settings-drawer')).toHaveJSProperty('open', true);
-  await expect(page.locator('#model-form')).toBeVisible();
-  await expect(page.locator('#model-id')).toBeFocused();
-  await page.locator('#model-provider').selectOption('llama_cpp');
-  await expect(page.locator('#model-base-url')).toHaveValue('http://127.0.0.1:8080/v1');
-  await page.locator('#model-provider').selectOption('vllm');
-  await expect(page.locator('#model-base-url')).toHaveValue('http://127.0.0.1:8000/v1');
-  await page.locator('#model-provider').selectOption('ollama');
-  await expect(page.locator('#model-base-url')).toHaveValue('http://127.0.0.1:11434/v1');
-  await page.locator('#model-form').getByRole('button', {name:'Cancel'}).click();
-  await expect(page.locator('#model-form')).toBeHidden();
-  await expect(page.getByRole('heading', {name:'Local models'})).toBeVisible();
-  await expect(page.getByRole('heading', {name:'Agents'})).toBeHidden();
-  await screenshot(page, testInfo, `settings-${testInfo.project.name}.png`, false);
-  await expect(page.locator('.eyebrow:visible')).toHaveCount(0);
-  await expect(page.locator('.live-dot:visible')).toHaveCount(0);
-  await expect(page.getByText(/localhost responding|local workspace/i)).toHaveCount(0);
-  await expect(page.locator('.status-facts:visible')).toHaveCount(0);
-  await expect(page.locator('.item-tag:visible, .count-label:visible, .state-pill:visible')).toHaveCount(0);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(testInfo.project.use.viewport.width);
-  await page.locator('[data-settings-category="agents"]').click();
-  await expect(page.getByRole('heading', {name:'Agents'})).toBeVisible();
-  await expect(page.getByRole('heading', {name:'Local models'})).toBeHidden();
-  await expectSettingsTitleVisible(page);
-  for (const category of ['connections', 'devices', 'automations', 'advanced', 'models']) {
-    await page.locator(`[data-settings-category="${category}"]`).click();
-    await expect(page.locator(`[data-settings-panel="${category}"]`)).toBeVisible();
-    await expectSettingsTitleVisible(page);
+  const recommendationStatus = page.locator('#recommendations-status');
+  await expect(recommendationStatus).not.toHaveText('Checking host hardware…');
+  const suggestions = page.locator('#recommendations-list li');
+  if (await suggestions.count()) {
+    await expect(suggestions.first()).toContainText('qwen3:1.7b');
+    await expect(suggestions.first().locator('details')).not.toHaveAttribute('open');
+    await expect(suggestions.first()).not.toContainText('github.com');
+    await expect(suggestions.first().locator('a.recommendation-evidence')).toHaveAttribute('href', /github\.com\/TaxCollector23\/OwnBot\/actions\/runs\/40738088838/);
+    await suggestions.first().locator('button').click();
+    await expect(page.locator('#recommendation-command')).toContainText('ollama pull qwen3:1.7b');
+    const origin = new URL(page.url()).origin;
+    if (origin === 'http://127.0.0.1:8765' || origin === 'http://localhost:8765') {
+      await expect(page.locator('#recommendation-command')).toContainText('ownbot setup');
+    } else {
+      await expect(page.locator('#recommendation-command')).toContainText(`ownbot setup --url ${origin} --model qwen3:1.7b`);
+    }
+  } else {
+    await expect(recommendationStatus).toContainText('recommendation unavailable');
   }
-  await page.locator('[data-settings-category="devices"]').click();
-  await expect(page.locator('[data-settings-panel="devices"]')).toBeVisible();
-  await expectSettingsTitleVisible(page);
-  await page.locator('#settings-close').click();
-  await expect(page.locator('#settings-drawer')).toBeHidden();
-  await page.locator('#settings-toggle').click();
-  await expect(page.locator('#settings-drawer')).toHaveJSProperty('open', true);
-  await expectSettingsTitleVisible(page);
-  await expect(page.locator('#access-instructions')).toBeHidden();
-  await expect(page.locator('#access-command')).toBeHidden();
-  await screenshot(page, testInfo, `settings-devices-${testInfo.project.name}.png`, false);
-  if (testInfo.project.name !== 'desktop-1440') {
-    const smallControls = await page.locator('button:not([hidden]), input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea, summary').evaluateAll((items) => items.flatMap((item) => {
-      const rect = item.getBoundingClientRect();
-      const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(item).visibility !== 'hidden';
-      return visible && rect.height < 44 ? [{text:(item.innerText || item.getAttribute('aria-label') || item.type || item.tagName).trim(), height:Math.round(rect.height)}] : [];
-    }));
-    expect(smallControls, 'visible phone controls must have a 44px touch target').toEqual([]);
-  }
-
-  const modal = page.locator('dialog[open], [role="dialog"][aria-modal="true"]');
-  if (await modal.count()) {
-    await page.keyboard.press('Escape');
-    await expect(modal).toBeHidden();
+  await page.locator('#setup-toggle').click();
+  await expect(page.locator('#setup-dialog')).toHaveJSProperty('open', true);
+  await expect(page.locator('#setup-dialog')).toContainText('ownbot setup');
+  await expect(page.locator('#setup-dialog')).toContainText('ownbot connect');
+  await expect(page.locator('#setup-dialog')).toContainText('ownbot inspect');
+  await expect(page.locator('#setup-dialog')).toContainText('ownbot daemon start');
+  await page.locator('#setup-close').click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(testInfo.project.use.viewport.width);
+  if (testInfo.project.use.viewport.width <= 760) {
+    await page.locator('#history-toggle').click();
+    await expect(page.locator('#history-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await page.locator('#history-close').click();
+    await expect(page.locator('#history-toggle')).toHaveAttribute('aria-expanded', 'false');
   }
 });
 
@@ -280,60 +164,42 @@ test('pairing fragment opens the name form and removes the secret from browser h
   expect(pairExchanges, 'the browser waits for a device name before exchanging a pairing secret').toBe(0);
 });
 
-test('real daemon model probe, agent setup, prompt editing and rollback, capability toggle, run result and history', async ({ownerPage}, testInfo) => {
+test('real task runs preserve prompt versions, show results, and appear in history', async ({ownerPage, daemon}, testInfo) => {
   const page = ownerPage;
-  const {agent, agentID} = await setUpModelAgent(page);
-  await savePrompt(page, agent, 'Use the available tools carefully.', 1);
-  await savePrompt(page, agent, 'Give a short, direct answer.', 2);
+  const {agentID, modelID} = await setUpModelAgent(page, daemon);
+  await expect(page.locator('#task-agent')).toBeHidden();
+  await savePrompt(daemon, agentID, 'Use the available tools carefully.', 1);
+  await savePrompt(daemon, agentID, 'Give a short, direct answer.', 2);
+  const rollback = await ownerAPI(daemon, `/api/agents/${encodeURIComponent(agentID)}/prompts/rollback`, {method:'POST', body:{version:1}});
+  expect(rollback).toMatchObject({version:3, source_version:1});
+  const prompts = await ownerAPI(daemon, `/api/agents/${encodeURIComponent(agentID)}/prompts`);
+  expect(prompts[0]).toMatchObject({version:3, prompt:'Use the available tools carefully.'});
 
-  await agent.locator('[data-prompt-edit]').click();
-  const earlierVersion = agent.locator('.prompt-version').filter({hasText:'Version 1'});
-  await earlierVersion.locator('summary').click();
-  const restore = agent.locator('[data-prompt-rollback][data-version="1"]');
-  await expect(restore).toBeVisible();
-  let confirmDialog;
-  page.once('dialog', (dialog) => { confirmDialog = dialog; void dialog.dismiss(); });
-  await restore.click();
-  await expect.poll(() => confirmDialog?.type()).toBe('confirm');
-  await expect(page.locator('#page-message')).not.toContainText('restored from version 1');
-  await expect(agent.locator('[data-prompt-rollback][data-version="1"]')).toBeVisible();
-  await expect(agent.locator('.prompt-form')).toBeVisible();
-  const restoreAgain = agent.locator('[data-prompt-rollback][data-version="1"]');
-  page.once('dialog', (dialog) => dialog.accept());
-  await restoreAgain.click();
-  await expect(page.locator('#page-message')).toContainText('restored from version 1');
-
-  await agent.locator('[data-agent-tools-edit]').click();
-  const capability = agent.locator('.agent-capability-form');
-  await capability.locator('input[name="web_search"]').check();
-  await capability.getByRole('button', {name:'Save capabilities'}).click();
-  await expect(agent).toContainText('Web search: on');
+  await ownerAPI(daemon, '/api/agents', {method:'POST', body:{name:'Second browser agent', model:modelID, enabled:true, max_steps:8, max_tokens:4096, timeout_seconds:120}});
+  await page.locator('#refresh-button').click();
+  await expect(page.locator('#task-agent')).toBeVisible();
+  await page.locator('#task-agent').selectOption(agentID);
 
   await runTask(page, 'Answer this with one short sentence.');
   await expect(page.locator('#page-message')).toContainText('finished with status completed', {timeout:30_000});
   await expect(page.locator('#run-detail')).toContainText('Fixture run result.');
+  await expect(page.locator('#run-detail')).toContainText('Prompt version 3');
   if (testInfo.project.use.viewport.width <= 760) {
     await page.locator('#history-toggle').click();
     await expect(page.locator('#history-toggle')).toHaveAttribute('aria-expanded', 'true');
   }
-  const historyItem = page.locator('#runs-list [data-run-detail]').first();
+  const historyItem = page.locator('#runs-list [data-run-id]').first();
   await expect(historyItem).toBeVisible();
   await historyItem.click();
   await expect(page.locator('#run-detail')).toContainText('Fixture run result.');
+  await expect(page.locator('#run-detail')).toContainText('Prompt version 3');
   expect(agentID).toMatch(/^[a-zA-Z0-9_-]+$/);
 });
 
-test('real LAN pairing enabled, create link, pair with pinned test TLS, and revoke from owner UI', async ({ownerPage, daemon}, testInfo) => {
+test('real LAN pairing link, one-time exchange, replay rejection, and revocation', async ({ownerPage, daemon}) => {
   test.skip(process.platform === 'darwin', 'macOS routes connections to its own private address through lo0; pinned-TLS LAN pairing is exercised by Linux CI.');
-  const page = ownerPage;
-  await openSettingsCategory(page, 'devices');
-  await screenshot(page, testInfo, `settings-devices-${testInfo.project.name}.png`, false);
-  await expect(page.locator('#create-pairing-button')).toBeEnabled();
-  await expect(page.locator('#access-state')).toHaveText('Enabled');
-  await page.locator('#create-pairing-button').click();
-  const link = page.locator('#pairing-link');
-  await expect(link).toBeVisible();
-  const pairingURL = new URL(await link.inputValue());
+  const pairing = await ownerAPI(daemon, '/api/devices/pairing', {method:'POST', body:{}});
+  const pairingURL = new URL(pairing.pairing_url);
   const secret = new URLSearchParams(pairingURL.hash.slice(1)).get('pair');
   expect(pairingURL.protocol).toBe('https:');
   expect(secret).toMatch(/^[A-Za-z0-9_-]{32,}$/);
@@ -342,21 +208,21 @@ test('real LAN pairing enabled, create link, pair with pinned test TLS, and revo
   expect(paired.device.name).toBe('Browser fixture phone');
   const replay = await pairThroughPinnedTLS(daemon, secret, 'Replay fixture phone', 401);
   expect(replay.status).toBe(401);
-  await page.locator('#refresh-devices-button').click();
-  const device = page.locator('#devices-list .device-row').filter({hasText:'Browser fixture phone'});
-  await expect(device).toBeVisible();
-  await device.getByRole('button', {name:'Revoke access'}).click();
-  await expect(page.locator('#page-message')).toContainText('Device access revoked.');
-  await expect(device).toContainText('Revoked');
-  await expect(device.getByRole('button', {name:'Revoke access'})).toHaveCount(0);
+  const devices = await ownerAPI(daemon, '/api/devices');
+  const device = devices.find((item) => item.name === 'Browser fixture phone');
+  expect(device?.id).toBeTruthy();
+  await ownerAPI(daemon, `/api/devices/${encodeURIComponent(device.id)}`, {method:'DELETE'});
+  const afterRevoke = await ownerAPI(daemon, '/api/devices');
+  expect(afterRevoke.find((item) => item.id === device.id)?.revoked_at).toBeTruthy();
 });
 
-test('real MCP write remains pending until approval; approve dispatches once and denial never dispatches', async ({ownerPage}, testInfo) => {
+test('real MCP write remains pending until approval; approve dispatches once and denial never dispatches', async ({ownerPage, daemon}, testInfo) => {
   const page = ownerPage;
-  const {agent} = await setUpModelAgent(page);
-  await savePrompt(page, agent, 'Only create a note when the task asks for it.', 1);
-  await createMCPConnection(page);
-  await configureWriteTool(page, agent);
+  const {agentID} = await setUpModelAgent(page, daemon);
+  await savePrompt(daemon, agentID, 'Only create a note when the task asks for it.', 1);
+  const server = await createMCPConnection(daemon);
+  await configureWriteTool(daemon, agentID, server.id);
+  await page.locator('#refresh-button').click();
 
   await runTask(page, 'approval-check: create a note');
   await expect(page.locator('#approvals-panel')).toBeVisible({timeout:30_000});
@@ -367,7 +233,7 @@ test('real MCP write remains pending until approval; approve dispatches once and
   expect(pendingStats.mcpWrites, 'write provider must not receive a request while approval is pending').toBe(0);
 
   await page.locator('#approvals-list').getByRole('button', {name:'Approve and resume'}).click();
-  await expect(page.locator('#page-message')).toContainText('Approval recorded. Run completed with its pinned prompt and model configuration.', {timeout:30_000});
+  await expect(page.locator('#page-message')).toContainText('Approval recorded. Run completed.', {timeout:30_000});
   await expect.poll(async () => (await fixtureStats()).mcpWrites).toBe(1);
   expect((await fixtureStats()).mcpCalls).toHaveLength(1);
 
@@ -392,7 +258,7 @@ test('expired owner session recovers through a new real one-time bootstrap link'
   page.allowExpiredOwnerSession();
   await page.withExpectedNavigation(() => page.reload());
   await expect(page.locator('#token-panel')).toBeVisible();
-  await expect(page.locator('#page-message')).toContainText('owner session expired or was rejected');
+  await expect(page.locator('#page-message')).toContainText('This browser no longer has access.');
   expect(await page.evaluate(() => sessionStorage.getItem('ownbot.api-token'))).toBeNull();
 
   const ticket = await freshBootstrap(daemon);

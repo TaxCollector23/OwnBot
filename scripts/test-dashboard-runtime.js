@@ -1,127 +1,83 @@
 #!/usr/bin/env node
-// Dependency-free regression checks for MCP connections, agent capabilities, and runs.
+// Dependency-free regression checks for the task, history, and approval surface.
 const assert = require('node:assert/strict');
-const { readFileSync } = require('node:fs');
-const { resolve } = require('node:path');
+const {readFileSync} = require('node:fs');
+const {resolve} = require('node:path');
 const vm = require('node:vm');
 
 const source = readFileSync(resolve(__dirname, '../web/dashboard.js'), 'utf8');
 
-function harness(connectRequiresAuth = false, rejectSearch = false) {
+function harness() {
   const elements = new Map();
-  const listeners = new Map();
   const requests = [];
-  let agents = [{id:'a1', name:'Assistant', model:'m1', enabled:false, prompt_version:1, prompt:'Be safe.', tools:[], max_steps:8, max_tokens:4096, timeout_seconds:120}];
-  let mcpServers = [{id:'s1', name:'Notes', transport:'streamable_http', endpoint:'https://notes.example/mcp', enabled:false, runtime_available:false, allowed_tools:['Lookup'], read_tools:['Lookup'], write_tools:[]}];
-  let mcpConnected = false;
-  let searchEndpoint = '';
-  const tools = [{name:'Lookup', description:'Find notes', risk:'read', source:'mcp', server:'s1'}];
-  const approvals = [{id:'ap1', run_id:'r1', agent_id:'a1', tool:'calendar.write', status:'pending', reason:'Create event'}];
+  let agents = [];
+  let runs = [];
+  let approvals = [{id:'ap1',run_id:'r1',agent_id:'a1',tool:'calendar.write',status:'pending',reason:'Create event',args:{title:'Review'}}];
+  const storage = new Map([['ownbot.api-token','token']]);
   function element(selector) {
     if (!elements.has(selector)) {
       const handlers = new Map();
-      elements.set(selector, {
-        value:'', textContent:'', innerHTML:'', hidden:false, className:'', disabled:false, dataset:{}, handlers,
-        classList:{toggle(){}}, addEventListener(type, handler){handlers.set(type, handler);}, focus(){}, reset(){this.value='';},
-      });
+      elements.set(selector,{value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,dataset:{},handlers,
+        classList:{toggle(){}},addEventListener(type,handler){handlers.set(type,handler);},querySelector(child){return element(child);},showModal(){this.open=true;},close(){this.open=false;}});
     }
     return elements.get(selector);
   }
-  const document = {
-    querySelector: element,
-    querySelectorAll: () => [],
-    addEventListener(type, handler) { listeners.set(type, handler); },
-  };
-  element('#token-panel').hidden = true;
-  const sessionStorage = {getItem: ()=>'token', setItem(){}, removeItem(){}};
-  async function fetch(path, options = {}) {
-    const method = options.method || 'GET';
-    requests.push({path, method, body:options.body});
-    let status = 200;
-    let data = [];
-    if (path === '/api/status') data = {ok:true, api_token_required:true};
-    else if (path === '/api/models' && method === 'GET') data = [{id:'m1', provider:'ollama', model:'m1', base_url:'http://127.0.0.1:11434/v1', last_probe:{score:100, json_output:true, single_tool:true, tool_choice:true, argument_accuracy:true, restricted:false}, probed_at:'2026-10-27T10:00:00Z'}];
-    else if (path === '/api/search' && method === 'GET') data = {provider:'searxng', endpoint:searchEndpoint, configured:Boolean(searchEndpoint), requests_leave_device:true};
-    else if (path === '/api/search' && method === 'POST' && rejectSearch) { status = 400; data = {error:'search endpoint must use HTTPS or loopback HTTP without credentials'}; }
-    else if (path === '/api/search' && method === 'POST') { searchEndpoint = JSON.parse(options.body).endpoint; data = {provider:'searxng', endpoint:searchEndpoint, configured:true, requests_leave_device:true}; }
-    else if (path === '/api/agents' && method === 'GET') data = agents;
-    else if (path === '/api/mcp/servers' && method === 'GET') data = mcpServers;
-    else if (path === '/api/tools' && method === 'GET') data = [...(mcpConnected ? tools : []), ...(searchEndpoint ? [{name:'web_search', description:'Search the configured SearXNG instance', risk:'read', source:'web_search', server:''}] : [])];
-    else if (path === '/api/mcp/servers/s1/connect' && method === 'POST' && connectRequiresAuth) { data = {code:'auth_required', error:'provider sign-in required'}; }
-    else if (path === '/api/mcp/servers/s1/connect' && method === 'POST') { mcpConnected = true; mcpServers = [{...mcpServers[0], enabled:true, runtime_available:true}]; data = mcpServers[0]; }
-    else if (path === '/api/agents/a1' && method === 'PATCH') { agents = [{...agents[0], ...JSON.parse(options.body)}]; data = agents[0]; }
-    else if (path === '/api/agents/a1/runs' && method === 'POST') data = {id:'r2', agent_id:'a1', status:'succeeded', prompt_version:1, output:'Done'};
-    else if (path === '/api/runs') data = [{id:'r1', agent_id:'a1', status:'awaiting_approval', prompt_version:1}];
-    else if (path === '/api/runs/r1' || path === '/api/runs/r2') data = {id:path.endsWith('r1') ? 'r1' : 'r2', status:'succeeded', prompt_version:1, steps:[], output:'Done'};
-    else if (path === '/api/approvals') data = approvals;
-    else if (path === '/api/approvals/ap1/approve' && method === 'POST') data = {id:'ap1', status:'approved'};
-    else if (path === '/api/runs/r1/resume' && method === 'POST') data = {id:'r1', status:'succeeded', prompt_version:1, output:'Continued'};
-    if (connectRequiresAuth && path === '/api/mcp/servers/s1/connect' && method === 'POST') status = 409;
-    const body = JSON.stringify(data);
-    return {ok:status >= 200 && status < 300, status, async text(){return body;}};
+  const document={querySelector:element,querySelectorAll:()=>[],addEventListener(){}};
+  const sessionStorage={getItem:(key)=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:(key)=>storage.delete(key)};
+  async function fetch(path,options={}) {
+    const method=options.method||'GET';
+    requests.push({path,method,body:options.body?JSON.parse(options.body):null});
+    let data=[];
+    if(path==='/api/status') data={ok:true,api_token_required:true};
+    else if(path==='/api/agents'&&method==='GET') data=agents;
+    else if(path==='/api/setup/recommendations'&&method==='GET') data={host_memory_bytes:16*1024**3,suggestions:[{model:'qwen3:1.7b',install_command:'ollama pull qwen3:1.7b',reason:'Tested candidate'}]};
+    else if(path==='/api/runs'&&method==='GET') data=runs;
+    else if(path==='/api/approvals'&&method==='GET') data=approvals;
+    else if(path==='/api/agents/a1/runs'&&method==='POST') {data={id:'r2',agent_id:'a1',status:'completed',prompt_version:3};runs=[{id:'r2',agent_id:'a1',status:'completed',prompt_version:3}];}
+    else if(path==='/api/runs/r2') data={id:'r2',status:'completed',prompt_version:3,output:'Fixture result.',steps:1,messages:[{role:'assistant',content:'Fixture result.'}]};
+    else if(path==='/api/approvals/ap1/approve'&&method==='POST') {approvals=[];data={id:'ap1',status:'approved'};}
+    else if(path==='/api/runs/r1/resume'&&method==='POST') data={id:'r1',status:'completed',prompt_version:2};
+    const body=JSON.stringify(data);
+    return {ok:true,status:200,async text(){return body;}};
   }
-  class FakeFormData { constructor(form){this.form=form;} get(name){return this.form.values?.[name] || '';} getAll(name){const value=this.form.values?.[name]; return Array.isArray(value) ? value : value ? [value] : [];} }
-  vm.runInNewContext(source, {document, sessionStorage, fetch, Headers, FormData:FakeFormData, CSS:{escape:(v)=>v}, console});
-  return {element, listeners, requests, get agents(){return agents;}};
+  vm.runInNewContext(source,{document,sessionStorage,fetch,Headers,URLSearchParams,window:{location:{hostname:'127.0.0.1',hash:'',pathname:'/dashboard',search:''},history:{replaceState(){}}},console});
+  return {element,requests,setAgents(value){agents=value;},setApprovals(value){approvals=value;}};
 }
 
-async function main() {
-  const h = harness();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.match(h.element('#agents-list').innerHTML, /Disabled agents cannot run/);
-  const connect = {dataset:{mcpId:'s1', mcpAction:'connect'}, disabled:false};
-  await h.listeners.get('click')({target:{closest:(selector)=>selector === '[data-mcp-action]' ? connect : null}});
-  assert.ok(h.requests.some(({path, method}) => path === '/api/mcp/servers/s1/connect' && method === 'POST'), 'connect must be an explicit action');
-  assert.match(h.element('#mcp-list').innerHTML, /Lookup/);
-  const enable = {dataset:{agentEnabled:'a1', enabled:'false'}, disabled:false};
-  await h.listeners.get('click')({target:{closest:(selector)=>selector === '[data-agent-enabled]' ? enable : null}});
-  assert.equal(h.agents[0].enabled, true, 'enable action persists enabled state');
-  assert.equal(h.element('#task-form').hidden, false, 'an enabled agent and local model unlock the task composer');
-  assert.equal(h.element('#task-form').dataset.runForm, 'a1', 'composer targets the selected enabled agent');
+const pause=()=>new Promise((resolve)=>setImmediate(resolve));
+async function main(){
+  const app=harness();
+  await pause();
+  const startup=app.requests.map(({path})=>path);
+  assert.deepEqual(startup.sort(),['/api/agents','/api/approvals','/api/runs','/api/setup/recommendations'].sort(),'startup reads task data and host recommendation only while setup is empty');
+  assert.equal(app.element('#composer-empty').hidden,false,'empty setup prompts for CLI setup');
+  assert.match(app.element('#recommendations-list').innerHTML,/qwen3:1.7b/,'hardware recommendation is shown in the empty state');
+  for(const forbidden of ['/api/models','/api/mcp/servers','/api/tools','/api/search','/api/audit','/api/automations']) assert.equal(startup.includes(forbidden),false,`${forbidden} is absent from startup`);
 
-  const capabilityForm = {dataset:{agentToolsForm:'a1'}, values:{web_search:'on', mcp_enabled:'on', tool:['Lookup'], mcp_server:['s1']}};
-  await h.listeners.get('submit')({target:{closest:(selector)=>selector === '.agent-capability-form' ? capabilityForm : null}, preventDefault(){}});
-  const capabilityPatch = h.requests.find(({path, method, body}) => path === '/api/agents/a1' && method === 'PATCH' && JSON.parse(body).tools);
-  assert.ok(capabilityPatch, 'agent capability configuration is saved');
-  assert.deepEqual(JSON.parse(capabilityPatch.body).tools, ['Lookup']);
-  assert.deepEqual(JSON.parse(capabilityPatch.body).mcp_servers, ['s1']);
+  app.setAgents([{id:'a1',name:'Assistant',enabled:true,prompt_version:3}]);
+  await app.element('#refresh-button').handlers.get('click')();
+  assert.equal(app.element('#task-form').hidden,false,'an enabled agent unlocks task entry');
+  assert.equal(app.element('#task-agent').hidden,true,'a single enabled agent needs no selector');
+  app.setAgents([{id:'a1',name:'Assistant',enabled:true},{id:'a2',name:'Writer',enabled:true}]);
+  await app.element('#refresh-button').handlers.get('click')();
+  assert.equal(app.element('#task-agent').hidden,false,'multiple agents reveal the selector');
+  assert.match(app.element('#task-agent').innerHTML,/Assistant/);
+  assert.match(app.element('#task-agent').innerHTML,/Writer/);
 
-  const form = h.element('#task-form');
-  form.values = {input:'hello'};
-  form.querySelector = () => ({disabled:false});
-  await h.listeners.get('submit')({target:{closest:(selector)=>selector === '.run-form' ? form : null}, preventDefault(){}});
-  assert.ok(h.requests.some(({path, method, body}) => path === '/api/agents/a1/runs' && method === 'POST' && JSON.parse(body).input === 'hello'));
+  const form=app.element('#task-form');
+  form.dataset.agentId='a1';
+  app.element('#task-input').value='Do one task';
+  await form.handlers.get('submit')({preventDefault(){},currentTarget:form});
+  assert.ok(app.requests.some(({path,method,body})=>path==='/api/agents/a1/runs'&&method==='POST'&&body.input==='Do one task'));
+  assert.match(app.element('#run-detail').innerHTML,/Fixture result/);
+  assert.match(app.element('#run-detail').innerHTML,/Prompt version 3/);
 
-  const approval = {dataset:{id:'ap1', runId:'r1', decision:'approve'}, disabled:false};
-  await h.listeners.get('click')({target:{closest:(selector)=>selector === '[data-decision]' ? approval : null}});
-  const decisionIndex = h.requests.findIndex(({path}) => path === '/api/approvals/ap1/approve');
-  const resumeIndex = h.requests.findIndex(({path}) => path === '/api/runs/r1/resume');
-  assert.ok(decisionIndex >= 0 && resumeIndex > decisionIndex, 'linked approval is recorded before the paused run resumes');
-  assert.match(h.element('#page-message').textContent, /Approval recorded\. Run succeeded/);
-
-  const auth = harness(true);
-  await new Promise((resolve) => setImmediate(resolve));
-  const authConnect = {dataset:{mcpId:'s1', mcpAction:'connect'}, disabled:false};
-  await auth.listeners.get('click')({target:{closest:(selector)=>selector === '[data-mcp-action]' ? authConnect : null}});
-  assert.match(auth.element('#page-message').textContent, /sign-in required.*OAuth or sign-in/i);
-  assert.equal(auth.element('#token-panel').hidden, true, 'provider auth requirement does not invalidate the local API token');
-
-  const search = harness();
-  await new Promise((resolve) => setImmediate(resolve));
-  const searchForm = {values:{endpoint:'https://search.example/'}, querySelector(){return {disabled:false};}};
-  await search.element('#search-form').handlers.get('submit')({currentTarget:searchForm, preventDefault(){}});
-  assert.ok(search.requests.some(({path, method, body}) => path === '/api/search' && method === 'POST' && JSON.parse(body).endpoint === 'https://search.example/'));
-  assert.match(search.element('#search-status').innerHTML, /Requests leave this device: Yes/);
-  assert.match(search.element('#agents-list').innerHTML, /<code>web_search<\/code>/, 'configured search tool can be explicitly allowlisted on an agent');
-  const rejectedSearch = harness(false, true);
-  await new Promise((resolve) => setImmediate(resolve));
-  await rejectedSearch.element('#search-form').handlers.get('submit')({currentTarget:searchForm, preventDefault(){}});
-  assert.match(rejectedSearch.element('#page-message').textContent, /Could not configure SearXNG/i);
-  assert.doesNotMatch(rejectedSearch.element('#page-message').textContent, /configured\. Search queries/i);
-  process.stdout.write('dashboard runtime regression: PASS (search boundary, MCP connect and auth state, agent capabilities, runs and approval resume)\n');
+  const approve={dataset:{id:'ap1',runId:'r1',decision:'approve'},disabled:false};
+  await app.element('#approvals-list').handlers.get('click')({target:{closest:(selector)=>selector==='[data-decision]'?approve:null}});
+  const decide=app.requests.findIndex(({path})=>path==='/api/approvals/ap1/approve');
+  const resume=app.requests.findIndex(({path})=>path==='/api/runs/r1/resume');
+  assert.ok(decide>=0&&resume>decide,'approval is recorded before its run resumes');
+  assert.match(app.element('#page-message').textContent,/Approval recorded\. Run completed/);
+  process.stdout.write('dashboard runtime regression: PASS (minimal reads, CLI setup state, task selection, run history, prompt-version display, approval resume)\n');
 }
-
-main().catch((error) => {
-  process.stderr.write(`dashboard runtime regression: FAIL: ${error.stack || error.message}\n`);
-  process.exitCode = 1;
-});
+main().catch((error)=>{process.stderr.write(`dashboard runtime regression: FAIL: ${error.stack||error.message}\n`);process.exitCode=1;});

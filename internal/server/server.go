@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	_ "modernc.org/sqlite"
 	"ownbot/internal/engine"
 	"ownbot/internal/events"
+	"ownbot/internal/hardware"
 	"ownbot/internal/mcp"
 	"ownbot/internal/models"
 	"ownbot/web"
@@ -57,6 +59,7 @@ type Server struct {
 	automationCancel context.CancelFunc
 	automationDone   chan struct{}
 	automationClock  func() time.Time
+	setupHostInfo    func() (uint64, string)
 }
 
 func New(dir string) (*Server, error) {
@@ -72,7 +75,7 @@ func New(dir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), oauthFlows: make(map[string]*pendingMCPOAuth), oauthExchanges: make(map[string]*pendingMCPOAuth), automationClock: time.Now}
+	s := &Server{db: db, mux: http.NewServeMux(), registry: engine.NewRegistry(), hosts: mcp.NewHostManager(), events: events.NewHub(nil), pairAttempts: make(map[string]pairAttempt), bootstrapTickets: make(map[string]time.Time), localSessions: make(map[string]time.Time), oauthFlows: make(map[string]*pendingMCPOAuth), oauthExchanges: make(map[string]*pendingMCPOAuth), automationClock: time.Now, setupHostInfo: func() (uint64, string) { return hardware.ReadMemoryInfo().TotalBytes, runtime.GOOS }}
 	if err = s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -206,6 +209,7 @@ CREATE TABLE IF NOT EXISTS device_pairings(secret_hash TEXT PRIMARY KEY,expires_
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/status", s.status)
+	s.mux.HandleFunc("GET /api/setup/recommendations", s.setupRecommendations)
 	s.mux.HandleFunc("GET /api/access", s.access)
 	s.mux.HandleFunc("POST /api/access/bootstrap", s.createLocalBootstrap)
 	s.mux.HandleFunc("POST /api/access/bootstrap/exchange", s.exchangeLocalBootstrap)
