@@ -10,7 +10,9 @@ The source link was present in the page and its referenced recording script exis
 
 ## Hosted site
 
-The existing deployment was pre-change during this QA. Baseline route checks showed `/demos` returns 200, `/demos/` redirects with 308 to `/demos`, missing paths/assets return non-HTML 404s, and the transcript/logo load. The 320px hosted page still hid the mobile Install nav link, matching the deployed older CSS. No full hosted pass is claimed for the local UI revision; run the hosted target after deployment.
+After deployment to https://ownbot-demo.vercel.app, the hosted target passed **173 assertions with zero failures**. The live landing HTML, docs HTML, and `site.js` also matched the reviewed local files byte for byte. This verifies the production mobile navigation, copy controls, routes, responsive layouts, keyboard behavior, font fallback, transcript/source links, media byte ranges, and video playback covered by the suite. Native timeline seeking is checked at desktop width; narrow-screen seeking remains browser-dependent.
+
+The reviewed website code was pushed as `a7789ae` to GitHub `main`. No model, runtime, provider account, or user daemon state was installed or modified for these website checks. Real provider/device/hardware qualification remains outside this website test suite.
 
 ## Reusable command
 

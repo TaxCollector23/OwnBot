@@ -11,3 +11,7 @@ The demo website is maintained in `demo-site/` in this repository. It replaces t
 - This completes the demo-site handoff, not the full product release gate. Live provider/device/hardware and signed-update validation remain in `TODO.md` and `STATUS.md`.
 
 See `demo-site/README.md` for serving, recording, rendering, and deployment. Deploy only that static folder; never copy daemon state or credentials into it.
+
+## Website refinement review
+
+Five GPT-6 Luna agents at max effort covered design, implementation, end-to-end QA, accessibility, and maintainer review. The website now has visible mobile navigation, a sticky docs index, labeled demos, and copy controls with a manual keyboard fallback. Final verification: 172 local assertions and 173 hosted assertions, zero failures. See `docs/website-qa-2026-10-28.md` and `demo-site/scripts/test-site.cjs`. Website code: `a7789ae`; production: https://ownbot-demo.vercel.app.
