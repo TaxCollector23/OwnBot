@@ -1,0 +1,29 @@
+name: Homebrew install
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - Formula/ownbot.rb
+      - .github/workflows/homebrew.yml
+
+permissions:
+  contents: read
+
+jobs:
+  homebrew:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Tap OwnBot
+        run: brew tap taxcollector23/ownbot https://github.com/TaxCollector23/OwnBot
+      - name: Install the HEAD formula
+        run: brew install --HEAD taxcollector23/ownbot/ownbot
+      - name: Run the formula test
+        run: brew test taxcollector23/ownbot/ownbot
+      - name: Check daemon help
+        run: ownbotd --help
+      - name: Uninstall OwnBot
+        if: always()
+        run: brew uninstall --formula taxcollector23/ownbot/ownbot || true
