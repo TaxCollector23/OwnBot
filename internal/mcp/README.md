@@ -2,9 +2,9 @@
 
 The daemon can connect to configured **Streamable HTTP** MCP servers. It initializes supported handshake-era protocol versions (`2025-03-26`, `2025-06-18`, and `2025-11-25`), discovers tools, and exposes only explicitly allowlisted tools with a read/write classification. Remote metadata is treated as untrusted. Each tool call is schema-validated and passes through the engine's dispatch and approval policy; writes always require approval.
 
-The daemon does not currently expose an OAuth sign-in flow or persist provider tokens. An HTTP `401` or `403` marks the runtime session as requiring re-authentication; subsequent calls fail closed. The low-level HTTP client accepts a runtime token callback, but the daemon connection API does not provide one, so the daemon cannot complete provider re-authentication in this build.
+The daemon implements authorization-code OAuth with PKCE, metadata discovery, and public dynamic client registration for compatible servers. Use `ownbot connect notion` or `ownbot connect calendly`; SSH sessions print an additional tunnel for the exact loopback callback port. Tokens remain in the private local SQLite database and are not separately encrypted. Sign-in grants no tools to agents. An HTTP `401` or `403` invalidates runtime availability; expired grants require sign-in again when refresh fails.
 
-The public provider catalog contains these official hosted servers. Each requires provider OAuth and is reported unavailable until sign-in is implemented:
+The public provider catalog contains these official hosted servers. Notion and Calendly can start OAuth; Google setup remains deferred:
 
 | Provider | Endpoint | Verified provider documentation |
 |---|---|---|

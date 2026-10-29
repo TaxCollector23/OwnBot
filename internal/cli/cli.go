@@ -1258,7 +1258,7 @@ func validateMCPToolClasses(allowed, reads, writes []string) error {
 
 func printConnectHelp(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Connect commands manage HTTP MCP connections and their saved configuration:
-  ownbot connect notion|calendly|calendar|gmail [--ssh-target USER@HOST]
+  ownbot connect notion|calendly [--ssh-target USER@HOST]
   ownbot connect list
   ownbot connect add --name NAME --transport streamable_http --endpoint URL
   ownbot connect connect SERVER_ID
@@ -1267,6 +1267,7 @@ func printConnectHelp(w io.Writer) {
   ownbot connect clear-auth SERVER_ID
   ownbot connect remove SERVER_ID
 
+Google Calendar and Gmail sign-in are deferred pending local Google Cloud OAuth setup; see TODO.md.
 Use repeatable --tool, --read-tool, and --write-tool to save exact server tool names. stdio can be saved as metadata but cannot connect in this daemon.
 HTTP servers require every allowed tool to be classified as read or write; use disjoint classes.
 Use connect notion or connect calendly to save/reuse disabled server metadata and start public-provider OAuth sign-in. The flow uses PKCE and a one-use loopback callback. Connect authorize SERVER_ID starts sign-in for an existing config; clear-auth removes a saved grant and requests provider revocation. No API keys are collected; connecting discovers tools but never calls them or grants them to agents.

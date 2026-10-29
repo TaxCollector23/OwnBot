@@ -7,5 +7,5 @@
 - Set up Google's Calendar MCP developer preview and a Google Cloud OAuth client later. Configure it locally; do not commit credentials. Test connect, read, approved write, and disconnect with a real account.
 - Test public MCP sign-in and tool access with real Notion and Calendly accounts; verify provider scopes and per-tool approvals before enabling writes.
 - Select minimum supported hardware and a model after measuring the capability probe on an M2 Mac mini. A passing probe does not guarantee accuracy or prevent hallucinations.
-- Build and test the scheduler, agent runtime, and audit trail end to end.
+- Verify scheduler restart/retry, agent execution, approvals, and audit trails end to end with real provider accounts.
 - Complete and verify [the release gate](docs/release-gate.md) before publishing. Package signed, verifiable releases for npm and Homebrew only after the release checks pass.
