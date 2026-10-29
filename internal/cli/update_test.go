@@ -24,3 +24,22 @@ func TestUpdateDaemonHealthRequiresExactReleaseVersion(t *testing.T) {
 		t.Fatal("old daemon version passed the update health check")
 	}
 }
+
+func TestSelectReleaseMatchesCurrentChannelAndSkipsDrafts(t *testing.T) {
+	releases := []releaseInfo{
+		{TagName: "v5.0.0", Draft: true},
+		{TagName: "v4.0.0", Prerelease: false},
+		{TagName: "v4.1.0-alpha.2", Prerelease: true},
+	}
+	stable, err := selectRelease(releases, false)
+	if err != nil || stable.TagName != "v4.0.0" {
+		t.Fatalf("stable release=%+v err=%v", stable, err)
+	}
+	prerelease, err := selectRelease(releases, true)
+	if err != nil || prerelease.TagName != "v4.1.0-alpha.2" {
+		t.Fatalf("prerelease=%+v err=%v", prerelease, err)
+	}
+	if _, err := selectRelease(releases[:2], true); err == nil {
+		t.Fatal("missing prerelease did not fail clearly")
+	}
+}

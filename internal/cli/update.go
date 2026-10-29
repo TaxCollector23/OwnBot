@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"ownbot/internal/buildinfo"
 	"ownbot/internal/daemon"
 	"ownbot/internal/service"
 	"ownbot/internal/update"
@@ -27,8 +28,10 @@ const releaseAPI = "https://api.github.com/repos/TaxCollector23/OwnBot/releases"
 var releaseVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
 type releaseInfo struct {
-	TagName string `json:"tag_name"`
-	Assets  []struct {
+	TagName    string `json:"tag_name"`
+	Prerelease bool   `json:"prerelease"`
+	Draft      bool   `json:"draft"`
+	Assets     []struct {
 		Name string `json:"name"`
 		URL  string `json:"browser_download_url"`
 	} `json:"assets"`
@@ -380,13 +383,24 @@ func fetchRelease(version string) (releaseInfo, error) {
 			return releaseInfo{}, errors.New("release version must be semantic version text")
 		}
 		url = releaseAPI + "/tags/v" + version
+	} else if strings.Contains(buildinfo.Version, "-") {
+		url = releaseAPI + "?per_page=100"
 	}
 	body, err := downloadReleaseAsset(url, 2<<20)
 	if err != nil {
 		return releaseInfo{}, err
 	}
 	var release releaseInfo
-	if err := json.Unmarshal(body, &release); err != nil {
+	if version == "" && strings.Contains(buildinfo.Version, "-") {
+		var releases []releaseInfo
+		if err := json.Unmarshal(body, &releases); err != nil {
+			return releaseInfo{}, fmt.Errorf("parse GitHub releases response: %w", err)
+		}
+		release, err = selectRelease(releases, true)
+		if err != nil {
+			return releaseInfo{}, err
+		}
+	} else if err := json.Unmarshal(body, &release); err != nil {
 		return releaseInfo{}, fmt.Errorf("parse GitHub release response: %w", err)
 	}
 	if release.TagName == "" {
@@ -396,6 +410,20 @@ func fetchRelease(version string) (releaseInfo, error) {
 		return releaseInfo{}, errors.New("GitHub release tag does not match the requested version")
 	}
 	return release, nil
+}
+
+func selectRelease(releases []releaseInfo, prerelease bool) (releaseInfo, error) {
+	for _, release := range releases {
+		if release.Draft || release.Prerelease != prerelease || !releaseVersionPattern.MatchString(strings.TrimPrefix(release.TagName, "v")) {
+			continue
+		}
+		return release, nil
+	}
+	kind := "stable"
+	if prerelease {
+		kind = "prerelease"
+	}
+	return releaseInfo{}, fmt.Errorf("no published OwnBot %s is available", kind)
 }
 
 func releaseAssetURL(release releaseInfo, name string) string {

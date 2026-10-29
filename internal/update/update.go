@@ -213,6 +213,16 @@ func validDigest(value string) bool {
 // SeedBaseline copies an npm-installed release into the private update store
 // only after checking its detached signature and both installed binary hashes.
 func SeedBaseline(dataDir, installedDir, goos, goarch string, keys map[string]ed25519.PublicKey) (string, error) {
+	var version string
+	err := withUpdateLock(dataDir, func() error {
+		var err error
+		version, err = seedBaseline(dataDir, installedDir, goos, goarch, keys)
+		return err
+	})
+	return version, err
+}
+
+func seedBaseline(dataDir, installedDir, goos, goarch string, keys map[string]ed25519.PublicKey) (string, error) {
 	if _, err := ReadActive(dataDir); err == nil {
 		return "", nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -281,6 +291,12 @@ func SeedBaseline(dataDir, installedDir, goos, goarch string, keys map[string]ed
 // switches the active marker. The callback may start the new daemon and should
 // return an error if it does not become healthy; the old marker is restored.
 func Install(dataDir string, manifest Manifest, asset Asset, archive []byte, health func(string) error) error {
+	return withUpdateLock(dataDir, func() error {
+		return install(dataDir, manifest, asset, archive, health)
+	})
+}
+
+func install(dataDir string, manifest Manifest, asset Asset, archive []byte, health func(string) error) error {
 	if len(archive) == 0 || len(archive) > maxArchiveSize || sha256Hex(archive) != asset.SHA256 {
 		return errors.New("release archive is empty, too large, or does not match its signed digest")
 	}
@@ -366,6 +382,12 @@ func Install(dataDir string, manifest Manifest, asset Asset, archive []byte, hea
 }
 
 func Rollback(dataDir string, health func(string) error) error {
+	return withUpdateLock(dataDir, func() error {
+		return rollback(dataDir, health)
+	})
+}
+
+func rollback(dataDir string, health func(string) error) error {
 	active, err := ReadActive(dataDir)
 	if err != nil {
 		return err

@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func signedFixture(t *testing.T) ([]byte, []byte, map[string]ed25519.PublicKey) {
@@ -117,6 +118,87 @@ func TestInstallHealthFailureRestoresActiveVersionAndKeepsData(t *testing.T) {
 	}
 	if got, err := os.ReadFile(data); err != nil || string(got) != "preserve" {
 		t.Fatalf("state changed: %q err=%v", got, err)
+	}
+}
+
+func TestRollbackWaitsForFailedInstallTransaction(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture archive uses the Unix release format")
+	}
+	dataDir := t.TempDir()
+	if err := os.Chmod(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"3.0.0", "4.0.0"} {
+		if err := os.MkdirAll(VersionDir(dataDir, version), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeActive(dataDir, Active{Version: "4.0.0", Previous: "3.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "ownbot.db"), []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	archive := fixtureTarGzip(t)
+	digest := sha256.Sum256(archive)
+	manifest := Manifest{Name: "ownbot", Version: "5.0.0"}
+	asset := Asset{OS: runtime.GOOS, Arch: runtime.GOARCH, File: archiveName(manifest.Version, runtime.GOOS, runtime.GOARCH), SHA256: hex.EncodeToString(digest[:]), Binaries: map[string]string{}}
+	cliName, daemonName := binaryNames(runtime.GOOS)
+	asset.Binaries[cliName] = digestBytes([]byte("fixture " + cliName))
+	asset.Binaries[daemonName] = digestBytes([]byte("fixture " + daemonName))
+	activated := make(chan struct{})
+	allowInstallFailure := make(chan struct{})
+	installResult := make(chan error, 1)
+	go func() {
+		checks := 0
+		installResult <- Install(dataDir, manifest, asset, archive, func(string) error {
+			checks++
+			if checks == 2 {
+				close(activated)
+				<-allowInstallFailure
+				return os.ErrInvalid
+			}
+			return nil
+		})
+	}()
+	<-activated
+
+	rollbackStarted := make(chan struct{})
+	rollbackTarget := make(chan string, 1)
+	rollbackResult := make(chan error, 1)
+	go func() {
+		close(rollbackStarted)
+		rollbackResult <- Rollback(dataDir, func(path string) error {
+			rollbackTarget <- filepath.Base(path)
+			return nil
+		})
+	}()
+	<-rollbackStarted
+	select {
+	case err := <-rollbackResult:
+		t.Fatalf("rollback escaped the in-flight install transaction: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	close(allowInstallFailure)
+	if err := <-installResult; err == nil {
+		t.Fatal("expected activated health check failure")
+	}
+	if err := <-rollbackResult; err != nil {
+		t.Fatalf("rollback after failed install: %v", err)
+	}
+	if target := <-rollbackTarget; target != "3.0.0" {
+		t.Fatalf("rollback selected %s instead of the retained prior release", target)
+	}
+	active, err := ReadActive(dataDir)
+	if err != nil || active.Version != "3.0.0" || active.Previous != "4.0.0" {
+		t.Fatalf("active=%+v err=%v", active, err)
+	}
+	if _, err := os.Stat(VersionDir(dataDir, "5.0.0")); !os.IsNotExist(err) {
+		t.Fatalf("failed install was not removed after lock release: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dataDir, "ownbot.db")); err != nil || string(got) != "preserve" {
+		t.Fatalf("database changed: %q err=%v", got, err)
 	}
 }
 
