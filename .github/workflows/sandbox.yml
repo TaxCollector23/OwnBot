@@ -1,0 +1,48 @@
+name: Virtual sandbox
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  virtual-sandbox:
+    name: CLI and daemon harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the CLI and daemon
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/ownbot" ./cmd/ownbot
+          go build -trimpath -o "$RUNNER_TEMP/ownbotd" ./cmd/ownbotd
+      - name: Run the fixture-backed CLI and daemon workflow
+        env:
+          OWNBOT_BINARY: ${{ runner.temp }}/ownbot
+          OWNBOTD_BINARY: ${{ runner.temp }}/ownbotd
+        run: node scripts/test-local-workflows.cjs
+      - name: Add run summary
+        if: always()
+        run: |
+          {
+            echo '## Virtual sandbox'
+            echo
+            echo '- Result: `${{ job.status }}`'
+            echo '- Environment: disposable GitHub-hosted Ubuntu VM, with a 15-minute job limit.'
+            echo '- Harness: `scripts/test-local-workflows.cjs` against the built OwnBot CLI and daemon.'
+            echo '- Model and MCP services: deterministic loopback fixtures; no real model inference or external writes.'
+            echo '- Credentials: no provider API keys or user account credentials are configured.'
+            echo '- Artifacts: none uploaded; this summary and the action log contain aggregate test output only.'
+          } >> "$GITHUB_STEP_SUMMARY"
