@@ -30,3 +30,7 @@ Verification for application commit `e644335`: native Linux/macOS/Windows CI pas
 Added exact-ID CLI approval review/decisions and a read-only request lookup endpoint, plus browser-local docs filtering with Escape/Clear and hash-history recovery. Manual runs resume separately; scheduled automations may continue after explicit approval. See `docs/approvals.md` and the latest follow-up in `docs/qa-2026-10-29.md`. No model installation or new permission grants.
 
 Follow-up application commit `90c7d59` passed native CI (60 Linux/macOS workflow checks, 59 Windows), 18 dashboard browser cases, and the isolated LAN lab. Searchable docs passed 222 local and 223 hosted assertions. Vercel and Pages content matched the source; full details and remaining boundaries are in the QA report.
+
+## 2026-11-02 documentation and sandbox
+
+Site is docs-only with the refined open-weight agent description; no videos are deployed. Root and legacy `/demos` both retain guides/search/anchors. Local and hosted browser suites each passed 260 assertions. The named Virtual sandbox workflow passed 60 actual CLI/daemon checks using deterministic loopback fixtures on a disposable Ubuntu VM. No local model was installed. See `docs/qa-2026-11-02.md` and `docs/testing-sandbox.md`; real inference and physical-device qualification remain separate.
