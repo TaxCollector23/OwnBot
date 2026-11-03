@@ -1,7 +1,7 @@
 {
   "name": "ownbot",
   "version": "0.1.0-alpha.4",
-  "description": "ownbot local agent daemon (alpha)",
+  "description": "Run open-weight AI agents on your own computer. Connect tools, get tasks done, and approve changes from a dashboard on another device.",
   "bin": {
     "ownbot": "scripts/ownbot.js"
   },

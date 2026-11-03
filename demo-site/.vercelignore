@@ -1,6 +1,6 @@
-flyover
-scripts
-videos/*.cast
+videos/
+flyover/
+scripts/
 README.md
 node_modules
 .git

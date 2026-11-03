@@ -8,8 +8,7 @@ const { chromium } = require('@playwright/test');
 const root = path.resolve(__dirname, '..');
 const hosted = (process.env.OWNBOT_SITE_URL || 'https://ownbot-demo.vercel.app').replace(/\/$/, '');
 const widths = [320, 375, 768, 1440];
-const anchors = ['demos', 'install', 'setup', 'token', 'ssh', 'lan', 'service', 'hardware', 'inspect-audit', 'approvals', 'homebrew', 'status'];
-const videos = ['/videos/demo-terminal.mp4', '/videos/flyover.mp4'];
+const anchors = ['install', 'setup', 'token', 'ssh', 'lan', 'service', 'hardware', 'inspect-audit', 'approvals', 'homebrew', 'status'];
 const failures = [];
 let assertions = 0;
 
@@ -68,20 +67,14 @@ function startStaticServer() {
 async function routeChecks(base, label) {
   const canonical = await fetch(base + '/demos', { redirect: 'manual' });
   const html = await canonical.text();
-  check(canonical.status === 200 && /demos\s*&amp;\s*docs/i.test(html), label, '/demos serves the docs page');
+  check(canonical.status === 200 && /ownbot documentation/i.test(html), label, '/demos serves the docs page');
   const trailing = await fetch(base + '/demos/', { redirect: 'manual' });
   check(trailing.status === 308 && trailing.headers.get('location') === '/demos', label, '/demos/ redirects to /demos');
   const missing = await fetch(base + '/qa-missing-page', { redirect: 'manual' });
   check(missing.status === 404 && !(missing.headers.get('content-type') || '').includes('text/html'), label, 'missing page is a non-HTML 404');
   const missingAsset = await fetch(base + '/assets/qa-missing.svg', { redirect: 'manual' });
   check(missingAsset.status === 404 && !(missingAsset.headers.get('content-type') || '').includes('text/html'), label, 'missing asset is a non-HTML 404');
-  const transcript = await fetch(base + '/videos/demo-terminal.txt');
-  check(transcript.status === 200 && /ownbot/i.test(await transcript.text()), label, 'CLI transcript is available');
-  for (const video of videos) {
-    const media = await fetch(base + video, { headers: { Range: 'bytes=0-1023' } });
-    const bytes = new Uint8Array(await media.arrayBuffer());
-    check(media.status === 206 && media.headers.get('content-range')?.startsWith('bytes 0-1023/') && bytes.length === 1024, label, video + ' returns byte ranges');
-  }
+
 }
 
 async function pageChecks(page, base, route, width, label) {
@@ -109,18 +102,16 @@ async function pageChecks(page, base, route, width, label) {
   check(info.h1Count === 1 && info.main, label + ' ' + route + ' ' + width, 'one h1 and a main landmark');
   check(info.font.includes('Arial') || info.font.includes('sans-serif'), label + ' ' + route + ' ' + width, 'body font has a system fallback');
 
-  if (route === '/') check(/local/i.test(info.h1), label + ' landing ' + width, 'local-agent headline appears');
-  else {
+  {
     const ids = await page.locator('main [id]').evaluateAll(nodes => nodes.map(node => node.id));
     for (const id of anchors) check(ids.includes(id), label + ' docs', '#' + id + ' exists');
     const text = (await page.locator('main').innerText()).toLowerCase();
     for (const phrase of ['install from source', 'use over ssh', 'lan access', 'hardware and model checks', 'release status']) {
       check(text.includes(phrase), label + ' docs', 'contains ' + phrase);
     }
-    check(await page.locator('video[controls]').count() === 2, label + ' demos ' + width, 'two videos expose native controls');
-    check(await page.locator('.copy-button').count() > 0, label + ' demos ' + width, 'copy controls are added by the site script');
-    check(await page.locator('a[href="/videos/demo-terminal.txt"]').count() === 1, label + ' demos ' + width, 'transcript link exists');
-    check(await page.locator('a[href*="demo-session.sh"]').count() === 1, label + ' demos ' + width, 'recording source link exists');
+    check(await page.locator('video').count() === 0, label + ' docs ' + width, 'no videos');
+    check(await page.locator('.copy-button').count() > 0, label + ' docs ' + width, 'command copy controls appear');
+    check(info.h1 === 'Run open-weight AI agents on your own computer.', label, 'approved hero copy');
   }
   page.off('pageerror', onError);
   page.off('response', onResponse);
@@ -140,15 +131,7 @@ async function journeyChecks(page, base, width, label) {
       check(new URL(page.url()).hash === '#install', label + ' mobile nav ' + width, 'Install link navigates to its section');
     }
   }
-  await page.locator('.hero .actions a[href="/demos/"]').click();
-  await page.waitForURL(url => url.pathname === '/demos');
-  check(new URL(page.url()).pathname === '/demos', label + ' journey ' + width, 'landing CTA reaches canonical demos route');
-  const tocHardware = page.locator('.toc a[href="#hardware"]');
-  check(await tocHardware.isVisible(), label + ' TOC ' + width, 'on-page contents remain available');
-  await tocHardware.click();
-  await page.waitForFunction(() => location.hash === '#hardware');
-  check(new URL(page.url()).hash === '#hardware', label + ' TOC ' + width, 'TOC hardware link navigates to its section');
-  for (const id of ['demos', 'install', 'ssh', 'lan', 'hardware', 'inspect-audit', 'approvals', 'status']) {
+  for (const id of ['install', 'ssh', 'lan', 'hardware', 'inspect-audit', 'approvals', 'status']) {
     await page.locator('a[href="#' + id + '"]').first().click();
     await page.waitForFunction(id => location.hash === '#' + id && !!document.getElementById(id), id);
     check(new URL(page.url()).hash === '#' + id, label + ' journey ' + width, 'navigation reaches #' + id);
@@ -289,19 +272,7 @@ async function keyboardChecks(page, base, label) {
   check(focus.outline === '3px', label, 'keyboard focus outline is visible');
   await page.keyboard.press('Enter');
   check(new URL(page.url()).hash === '#main', label, 'skip link moves to main content');
-  await page.goto(base + '/demos', { waitUntil: 'domcontentloaded' });
-  const video = page.locator('video').first();
-  await video.scrollIntoViewIfNeeded();
-  await video.focus();
-  await video.press('Space');
-  await page.waitForFunction(el => !el.paused && el.currentTime > 0, await video.elementHandle(), { timeout: 8000 });
-  await video.press('Space');
-  await page.waitForFunction(el => el.paused, await video.elementHandle());
-  check(true, label, 'video play/pause works from keyboard');
-  await video.evaluate(el => { el.currentTime = 0; });
-  await video.press('ArrowRight');
-  await page.waitForFunction(el => el.currentTime > 0, await video.elementHandle(), { timeout: 2000 });
-  check(true, label, 'native video keyboard controls seek forward');
+
 }
 
 async function copyChecks(browser, base, label) {
@@ -345,41 +316,8 @@ async function fontFallbackChecks(browser, base, label) {
   await context.close();
 }
 
-async function mediaChecks(browser, base, label, width) {
-  const context = await browser.newContext({ viewport: { width, height: 900 } });
-  const page = await context.newPage();
-  const mediaResponses = [];
-  page.on('response', response => { if (response.url().includes('/videos/')) mediaResponses.push(response.status()); });
-  await page.goto(base + '/demos', { waitUntil: 'domcontentloaded' });
-  for (let i = 0; i < videos.length; i++) {
-    const video = page.locator('video').nth(i);
-    await video.scrollIntoViewIfNeeded();
-    const handle = await video.elementHandle();
-    await page.waitForFunction(el => el.readyState >= 1 && Number.isFinite(el.duration) && el.duration > 1, handle, { timeout: 15000 });
-    const meta = await video.evaluate(el => ({ duration: el.duration, src: el.currentSrc }));
-    check(meta.src.endsWith(videos[i]) && meta.duration > 1, label + ' media ' + width, videos[i] + ' metadata loads');
-
-    await video.evaluate(el => { el.pause(); el.currentTime = 0; });
-    if (width >= 768) {
-      await video.evaluate(el => { el.currentTime = el.duration * 0.72; });
-      try {
-        await page.waitForFunction(el => el.currentTime > el.duration * 0.45 && !el.seeking, handle, { timeout: 4000 });
-        check(true, label + ' media ' + width, videos[i] + ' seeks into the loaded media timeline');
-      } catch { check(false, label + ' media ' + width, videos[i] + ' did not seek into the loaded media timeline'); }
-    }
-
-    await video.evaluate(el => { el.pause(); el.currentTime = 0; });
-    await video.evaluate(el => el.play());
-    await page.waitForFunction(el => el.currentTime > 0.25 && !el.paused, handle, { timeout: 8000 });
-    await video.evaluate(el => el.pause());
-    check(true, label + ' media ' + width, videos[i] + ' plays and pauses');
-  }
-  check(mediaResponses.includes(206), label + ' media ' + width, 'browser uses media byte-range responses');
-  await context.close();
-}
-
 async function run() {
-  for (const file of ['index.html', 'demos/index.html', 'scripts/demo-session.sh', 'videos/demo-terminal.txt']) {
+  for (const file of ['index.html', 'demos/index.html', 'site.js']) {
     check(fs.existsSync(path.join(root, file)), 'local source', file + ' exists');
   }
   const local = await startStaticServer();
@@ -404,14 +342,9 @@ async function run() {
       await context.close();
       await copyChecks(browser, target.base, target.label);
       await fontFallbackChecks(browser, target.base, target.label);
-      for (const width of [320, 1440]) await mediaChecks(browser, target.base, target.label, width);
+
     }
-    if (selectedTarget !== 'local') {
-      const source = await fetch(hosted + '/demos').then(response => response.text());
-      const link = source.match(/href="(https:\/\/github\.com\/TaxCollector23\/OwnBot\/blob\/main\/demo-site\/scripts\/demo-session\.sh)"/);
-      if (link) check((await fetch(link[1])).status === 200, 'hosted source', 'recording source resolves on GitHub');
-      else check(false, 'hosted source', 'recording source link is present');
-    }
+
   } finally {
     await browser.close();
     await new Promise(resolve => local.server.close(resolve));
@@ -419,7 +352,7 @@ async function run() {
   console.log('Website QA assertions: ' + assertions + ', failures: ' + failures.length);
   for (const failure of failures) console.error('FAIL ' + failure);
   if (failures.length) process.exitCode = 1;
-  else console.log('PASS ' + (selectedTarget || 'hosted and local') + ' routes, breakpoints, journey, docs search, hash navigation, no-JS docs, keyboard, font fallback, copy actions, transcript, source, and media controls');
+  else console.log('PASS ' + (selectedTarget || 'hosted and local') + ' routes, breakpoints, journey, docs search, hash navigation, no-JS docs, keyboard, font fallback, copy actions, approved headline, and absence of video embeds');
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1; });

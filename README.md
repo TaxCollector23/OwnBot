@@ -1,10 +1,10 @@
 # ownbot
 
-[Demo](https://ownbot-demo.vercel.app/demos) · [Docs](https://taxcollector23.github.io/OwnBot/)
+[Docs](https://ownbot-demo.vercel.app/) · [GitHub Pages](https://taxcollector23.github.io/OwnBot/)
 
-Sources: [CLI and daemon](cmd/) · [Website and videos](demo-site/) · [Recording scripts](demo-site/scripts/)
+Sources: [CLI and daemon](cmd/) · [Documentation site](demo-site/)
 
-Configure agents in the CLI. Use the dashboard to run tasks, review results, and approve writes. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
+Run open-weight AI agents on your own computer. Connect tools, get tasks done, and approve changes from a dashboard on another device. Configure agents in the CLI. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
 
 ## Install from source
 
@@ -29,6 +29,6 @@ For LAN pairing, use `ownbot daemon start --lan` and follow the [LAN guide](docs
 
 ## Docs
 
-[Homebrew](docs/homebrew.md) · [Hardware and model checks](docs/hardware.md) · [Inspect and audit](docs/inspect-and-audit.md) · [Review approvals](docs/approvals.md) · [Daemon service](docs/service.md) · [LAN access](docs/lan-access.md) · [Release status](STATUS.md) · [Writing docs](docs/WRITING-DOCS.md) · [GitHub Pages guide](https://taxcollector23.github.io/OwnBot/)
+[Homebrew](docs/homebrew.md) · [Hardware and model checks](docs/hardware.md) · [Inspect and audit](docs/inspect-and-audit.md) · [Review approvals](docs/approvals.md) · [Daemon service](docs/service.md) · [LAN access](docs/lan-access.md) · [Release status](STATUS.md) · [Testing sandbox](docs/testing-sandbox.md) · [Writing docs](docs/WRITING-DOCS.md) · [GitHub Pages guide](https://taxcollector23.github.io/OwnBot/)
 
 After the `ownbot` package is published to npm, install it with `npm install -g ownbot@alpha`.

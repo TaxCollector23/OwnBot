@@ -5,30 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f3f2ee">
   <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
-  <title>ownbot — demos &amp; docs</title>
-  <meta name="description" content="Terminal and fly-over demos for ownbot, plus the full local install and access documentation.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <title>ownbot documentation</title>
+  <meta name="description" content="Run open-weight AI agents on your own computer. Connect tools, get tasks done, and approve changes from a dashboard on another device.">
   <style>
-    :root{--paper:#f3f2ee;--ink:#121212;--blue:#2340f0;--muted:#575750;--line:#c9c8c0;--dark-line:#3a3a37;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',Arial,sans-serif}
-    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--sans);-webkit-font-smoothing:antialiased}a{color:inherit}a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}.skip-link{position:absolute;top:-80px;left:16px;z-index:10;padding:10px 14px;background:var(--ink);color:var(--paper)}.skip-link:focus{top:10px}.wrap{width:min(100% - 48px,1120px);margin-inline:auto}.mono{font-family:var(--mono)}
-    .site-header{border-bottom:1px solid var(--line)}.header-inner{min-height:78px;display:flex;align-items:center;justify-content:space-between;gap:24px}.logo{font:500 20px/1.2 var(--mono);text-decoration:none;letter-spacing:-.04em}.site-nav{display:flex;align-items:center;gap:24px;font-size:14px}.site-nav a{display:inline-flex;min-height:44px;align-items:center;text-decoration:none}.site-nav .nav-cta{padding:0 15px;background:var(--ink);color:var(--paper)}
-    .hero{border-bottom:1px solid var(--ink)}.hero-inner{min-height:auto;padding-block:76px 84px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr);align-items:end;gap:clamp(40px,7vw,90px)}.hero h1{max-width:690px;margin:0 0 22px;font-size:clamp(48px,6vw,76px);line-height:.99;letter-spacing:-.065em;font-weight:500}.hero-lead{max-width:540px;color:var(--blue);font-size:clamp(21px,2.4vw,29px);line-height:1.25;font-weight:500}.hero-note{max-width:520px;margin-top:18px;color:var(--muted);font-size:16px}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:0 18px;border:1px solid var(--ink);font-size:14px;font-weight:500;text-decoration:none}.button.primary{border-color:var(--blue);background:var(--blue);color:#fff}.button.secondary{background:transparent;color:var(--ink)}
-    .toc{border:1px solid var(--ink);padding:22px 22px 18px;background:#efeee9;box-shadow:8px 8px 0 #d9d8d1}.toc h2{margin:0 0 14px;font:500 14px/1.3 var(--mono);letter-spacing:-.02em}.toc ol{margin:0;padding-left:1.2em;display:grid;gap:8px}.toc a{color:var(--blue);text-decoration:none}.toc a:hover{text-decoration:underline;text-underline-offset:3px}
-    .section{border-bottom:1px solid var(--ink)}.section-inner{padding-block:clamp(54px,7vw,84px)}.section h2{margin:0 0 18px;font-size:clamp(32px,4vw,46px);line-height:1.05;letter-spacing:-.05em;font-weight:500}.section h3{margin:28px 0 10px;font-size:22px;letter-spacing:-.03em;font-weight:500}.section h4{margin:22px 0 8px;font-size:17px;font-weight:600}.section p,.section li{color:#494944;font-size:16px;line-height:1.65}.section p{margin:0 0 14px}.section ul,.section ol{margin:0 0 16px;padding-left:1.25em}.section li+li{margin-top:6px}.lead{color:var(--ink)!important;font-size:19px!important;max-width:62ch}
-    .demo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px;margin-top:28px}.demo-card{margin:0;min-width:0;padding-top:14px;border-top:1px solid var(--line)}.demo-card h3{margin:0 0 6px;font-size:18px;font-weight:500}.demo-card p{margin:0 0 14px;color:#494944;font-size:15px}.demo-video{display:block;width:100%;aspect-ratio:16/10;background:var(--ink);border:1px solid var(--ink);box-shadow:8px 8px 0 #d9d8d1}
-    .install-command,.code-block{display:block;margin:14px 0 18px;padding:14px 16px;background:#e9e8e2;color:var(--ink);font:14px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--line)}
-    .doc-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px;align-items:start}.doc-rail,.doc-article{min-width:0}.doc-article{overflow-wrap:anywhere}.doc-rail{position:sticky;top:20px;padding-top:4px}.doc-rail p{margin:0 0 10px;font:500 13px var(--mono);color:var(--ink)}.doc-rail ul{list-style:none;margin:0;padding:0}.doc-rail a{display:block;padding:6px 0;color:var(--muted);text-decoration:none;font-size:14px}.doc-rail a:hover{color:var(--ink)}
-    .doc-article section{padding:0 0 36px;margin:0 0 36px;border-bottom:1px solid var(--line);scroll-margin-top:28px}.doc-article section:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}.callout{margin:18px 0;padding:14px 0 14px 16px;border-left:3px solid var(--blue);color:var(--muted);font-size:15px}.table-wrap{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line)}.doc-table{width:100%;border-collapse:collapse;font-size:14px}.doc-table th,.doc-table td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.doc-table th{font-weight:600;background:#e9e8e2}.step-number{color:var(--blue);font:500 13px var(--mono)}
-    .footer{padding-block:22px;border-top:1px solid var(--line)}.footer-inner{display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:15px}.footer-inner a{text-decoration:none;color:var(--ink)}
-    @media(max-width:860px){.header-inner{flex-wrap:wrap;padding-block:12px}.site-nav{flex-wrap:wrap;justify-content:flex-end}.hero-inner,.demo-grid,.doc-layout{grid-template-columns:1fr}.doc-rail{position:sticky;top:0;z-index:3;margin:0 -12px 24px;padding:8px 12px;background:var(--paper);border-bottom:1px solid var(--line)}.doc-rail p{display:none}.doc-rail ul{display:flex;flex-wrap:nowrap;gap:4px;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}.doc-rail a{flex:none;min-height:44px;padding:10px 12px}.doc-article section{scroll-margin-top:72px}}
-    @media(max-width:560px){.wrap{width:calc(100% - 32px)}.header-inner{min-height:64px;align-items:flex-start;padding-block:10px}.site-nav{width:100%;justify-content:flex-start;gap:2px 12px;font-size:13px}.site-nav .nav-cta{padding:0 11px;font-size:12px}.hero-inner{padding-block:46px 52px}.hero h1{font-size:clamp(43px,12vw,60px)}.demo-video{box-shadow:6px 6px 0 #d9d8d1}.footer-inner{flex-direction:column;gap:8px}}
-    .site-nav a:hover,.footer-inner a:hover,.doc-rail a:hover{color:var(--blue);text-decoration:underline;text-underline-offset:4px}.site-nav .nav-cta:hover{background:var(--blue);color:#fff;text-decoration:none}.button.primary:hover{border-color:#182dbb;background:#182dbb}.button.secondary:hover{background:#e9e8e2}.copy-control{display:flex;justify-content:flex-end;margin:0 0 18px}.copy-button{min-height:44px;padding:0 13px;border:1px solid var(--line);background:transparent;color:var(--ink);font:500 12px/1 var(--mono);cursor:pointer}.copy-button:hover{border-color:var(--blue);color:var(--blue)}.has-copy{margin-bottom:6px!important}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-    .docs-search{margin:0 0 26px;padding:16px;background:#efeee9;border:1px solid var(--line)}.docs-search label{display:block;margin-bottom:8px;font:500 16px/1.4 var(--sans)}.docs-search-controls{display:flex;gap:8px}.docs-search input{flex:1;min-width:0;min-height:46px;padding:10px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font:16px/1.4 var(--sans)}.docs-search button{min-height:46px;padding:0 16px;border:1px solid var(--ink);background:var(--ink);color:var(--paper);font:500 15px/1 var(--sans);cursor:pointer}.docs-search button:hover{background:var(--blue);border-color:var(--blue)}.docs-search-status{margin:10px 0 0!important;color:var(--muted);font-size:16px!important;line-height:1.45!important}
-    @media(max-width:360px){.docs-search-controls{flex-wrap:wrap}.docs-search input{flex-basis:100%}.docs-search button{width:100%}}
-    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
-  </style>
+:root{--paper:#f3f2ee;--ink:#121212;--blue:#2340f0;--muted:#575750;--line:#c9c8c0;--sans:Arial,sans-serif;--mono:ui-monospace,monospace}
+*{box-sizing:border-box}html{scroll-padding-top:24px}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 var(--sans)}a{color:var(--blue);text-underline-offset:4px}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--blue);outline-offset:3px}[hidden]{display:none!important}.wrap{width:min(100% - 48px,1100px);margin:auto}.skip-link{position:absolute;top:-80px;left:16px;padding:10px;background:var(--ink);color:white}.skip-link:focus{top:8px}.site-header{border-bottom:1px solid var(--line)}.header-inner{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:24px}.logo{font:500 22px var(--mono);color:var(--ink);text-decoration:none}.site-nav{display:flex;gap:24px}.site-nav a{display:inline-flex;align-items:center;min-height:44px}.hero-inner{padding:64px 0 40px;max-width:1100px}.hero h1{font-size:clamp(36px,5vw,58px);letter-spacing:-.045em;line-height:1.08;font-weight:500;max-width:840px;margin:0 0 24px}.hero-lead{font-size:22px;max-width:760px;margin:0 0 16px}.hero-note{color:var(--muted);max-width:760px}.section-inner{padding:0 0 60px}.doc-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:48px}.doc-rail{position:sticky;top:24px;align-self:start}.doc-rail p{margin:0 0 12px;font-weight:600}.doc-rail ul{list-style:none;padding:0;margin:0}.doc-rail a{display:block;padding:6px 0;color:var(--muted);text-decoration:none;font-size:16px}.doc-rail a:hover{color:var(--blue)}.doc-article{min-width:0}.doc-article>section{border-top:1px solid var(--line);padding:28px 0 36px;scroll-margin-top:24px}.doc-article h2{font-size:30px;line-height:1.2;letter-spacing:-.025em;font-weight:500;margin:0 0 18px}.doc-article h3{font-size:20px;margin:28px 0 12px}.doc-article p{margin:12px 0}.doc-article li{margin:8px 0}.code-block{white-space:pre-wrap;overflow-wrap:anywhere;background:#e9e8e2;padding:18px;font:15px/1.65 var(--mono);border:1px solid var(--line)}.mono{font-family:var(--mono);overflow-wrap:anywhere}.copy-control{display:flex;justify-content:flex-end;margin-top:-8px}.copy-button{font:16px var(--sans);min-height:44px;padding:8px 16px;background:transparent;border:1px solid var(--line);cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.docs-search{max-width:760px;margin:0 0 32px}.docs-search label{display:block;margin-bottom:8px;font-weight:600}.docs-search-controls{display:flex;gap:8px}.docs-search input{flex:1;min-width:0;padding:12px;font:17px var(--sans);background:var(--paper);border:1px solid var(--line)}.docs-search button{padding:12px;font:16px var(--sans);border:1px solid var(--ink);background:var(--ink);color:white}.docs-search-status{color:var(--muted);font-size:16px}.footer{border-top:1px solid var(--line);padding:24px 0}.footer-inner{display:flex;flex-wrap:wrap;gap:24px;font-size:16px}
+@media(max-width:700px){.wrap{width:calc(100% - 32px)}.hero-inner{padding:40px 0 24px}.doc-layout{display:block}.doc-rail{position:static;padding-bottom:24px}.doc-rail ul{display:flex;flex-wrap:wrap;gap:0 20px}.header-inner{flex-wrap:wrap;padding:12px 0;gap:8px}.site-nav{gap:16px}.hero-lead{font-size:20px}}
+.table-wrap{max-width:100%;overflow-x:auto}.doc-table{width:100%;border-collapse:collapse;font-size:16px}.doc-table th,.doc-table td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:top}
+</style>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -36,8 +20,8 @@
     <div class="wrap header-inner">
       <a href="/" class="logo">ownbot</a>
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="/#install">Install</a>
-        <a href="#demos">Demos</a>
+        <a href="#install">Install</a>
+
         <a href="#docs">Docs</a>
         <a href="https://github.com/TaxCollector23/OwnBot" class="nav-cta">GitHub</a>
       </nav>
@@ -47,56 +31,9 @@
   <main id="main">
     <section class="hero" id="top">
       <div class="wrap hero-inner">
-        <div>
-          <h1>Demos and documentation.</h1>
-          <p class="hero-lead">A recorded CLI session, a fly-over of the product landing page, and the install and access guides.</p>
-          <p class="hero-note">Install from source, then use the guides for local models, private-network pairing, and daemon service.</p>
-          <div class="actions">
-            <a href="#demos" class="button primary">Watch demos</a>
-            <a href="#docs" class="button secondary">Read the docs</a>
-          </div>
-        </div>
-        <aside class="toc" aria-label="On this page">
-          <h2>On this page</h2>
-          <ol>
-            <li><a href="#demos">Terminal + landing fly-over</a></li>
-            <li><a href="#install">Install from source</a></li>
-            <li><a href="#setup">Local model setup</a></li>
-            <li><a href="#token">API token</a></li>
-            <li><a href="#ssh">SSH access</a></li>
-            <li><a href="#lan">LAN access</a></li>
-            <li><a href="#service">Daemon service</a></li>
-            <li><a href="#hardware">Hardware checks</a></li>
-            <li><a href="#inspect-audit">Inspect and audit</a></li>
-            <li><a href="#approvals">Approvals</a></li>
-            <li><a href="#homebrew">Homebrew</a></li>
-            <li><a href="#status">Release status</a></li>
-          </ol>
-        </aside>
-      </div>
-    </section>
-
-    <section class="section" id="demos">
-      <div class="wrap section-inner">
-        <h2>See ownbot run.</h2>
-        <p class="lead">A recorded CLI check against a disposable local daemon, plus a 14.5-second tour of the landing page. No AI model was installed or run for this demo.</p>
-        <div class="demo-grid">
-          <figure class="demo-card">
-            <h3 id="demo-cli-title">CLI smoke test</h3>
-            <p id="demo-cli-description">Current CLI help, configuration inspection, connection list, and dashboard HTTP check. This is a smoke test with empty state, not a model-generated task.</p>
-            <video class="demo-video" aria-labelledby="demo-cli-title" aria-describedby="demo-cli-description" controls playsinline preload="metadata" poster="/assets/terminal-poster.png">
-              <source src="/videos/demo-terminal.mp4" type="video/mp4">
-            </video>
-            <p><a href="/videos/demo-terminal.txt">Read the transcript</a> · <a href="https://github.com/TaxCollector23/OwnBot/blob/main/demo-site/scripts/demo-session.sh">Recording source</a></p>
-          </figure>
-          <figure class="demo-card">
-            <h3 id="demo-flyover-title">Landing fly-over</h3>
-            <p id="demo-flyover-description">A camera tour of the ownbot landing page. This is a product animation, not a task execution recording.</p>
-            <video class="demo-video" aria-labelledby="demo-flyover-title" aria-describedby="demo-flyover-description" controls playsinline preload="metadata" poster="/assets/flyover-poster.png">
-              <source src="/videos/flyover.mp4" type="video/mp4">
-            </video>
-          </figure>
-        </div>
+        <h1>Run open-weight AI agents on your own computer.</h1>
+        <p class="hero-lead">Connect tools, get tasks done, and approve changes from a dashboard on another device.</p>
+        <p class="hero-note">Configure in the CLI. Access the dashboard through an SSH tunnel or on your private network. Public internet and cellular access are not supported.</p>
       </div>
     </section>
 
@@ -297,7 +234,7 @@ brew install --HEAD taxcollector23/ownbot/ownbot</pre>
 
             <section id="status">
               <h2>Release status</h2>
-              <p class="lead">Updated 2026-10-28. ownbot is still in development. Do not treat the checkout as a signed or production release.</p>
+              <p class="lead">Development build. ownbot is still in development. Do not treat the checkout as a signed or production release.</p>
               <h3>Current scope</h3>
               <ul>
                 <li>CLI supports local model detection and capability probing, daemon controls, and a local dashboard.</li>
@@ -312,7 +249,7 @@ brew install --HEAD taxcollector23/ownbot/ownbot</pre>
                 <li>Disposable local npm tarball install verified SSH owner-link redemption, replay rejection, daemon inspection, and shutdown with a service-manager stub.</li>
                 <li>Ollama and llama.cpp each passed all four real capability checks on hosted CPU runners.</li>
               </ul>
-              <p>Full notes: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">STATUS.md</a>. Upstream docs site: <a href="https://taxcollector23.github.io/OwnBot/">GitHub Pages</a>.</p>
+              <p>Test the harness in a <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/testing-sandbox.md">disposable virtual sandbox</a>. Full notes: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">STATUS.md</a>. Upstream docs site: <a href="https://taxcollector23.github.io/OwnBot/">GitHub Pages</a>.</p>
             </section>
           </article>
         </div>
@@ -323,7 +260,7 @@ brew install --HEAD taxcollector23/ownbot/ownbot</pre>
   <footer class="footer">
     <div class="wrap footer-inner">
       <span class="mono">ownbot</span>
-      <a href="/">Product landing</a>
+      <a href="#install">Installation</a>
       <a href="https://github.com/TaxCollector23/OwnBot">TaxCollector23/OwnBot</a>
     </div>
   </footer>
