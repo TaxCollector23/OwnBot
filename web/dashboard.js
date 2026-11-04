@@ -295,6 +295,7 @@
     if (!settingsLessSetup.open) settingsLessSetup.showModal();
   };
   q('#setup-toggle').addEventListener('click', setup);
+  q('#empty-setup-button').addEventListener('click', setup);
   q('#setup-close').addEventListener('click', () => settingsLessSetup.close());
   settingsLessSetup.addEventListener('click', (event) => { if (event.target === settingsLessSetup) settingsLessSetup.close(); });
   document.addEventListener('keydown', (event) => {

@@ -236,36 +236,20 @@ func startDaemon(args []string, apiURL, dataDir string, stdout io.Writer, open b
 }
 
 func printWelcome(w io.Writer) {
-	file, ok := w.(*os.File)
-	color := false
-	if ok && os.Getenv("NO_COLOR") == "" && !strings.EqualFold(os.Getenv("TERM"), "dumb") {
-		if info, err := file.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
-			color = true
-		}
-	}
-	if color {
-		_, _ = io.WriteString(w, "\x1b[38;5;39mOwnBot\x1b[0m\n\n")
-	} else {
-		_, _ = io.WriteString(w, "OwnBot\n\n")
-	}
+	_, _ = fmt.Fprintf(w, "%s\n\n", terminalAccent(w, "OwnBot"))
 }
 
 func printHelp(w io.Writer) {
-	_, _ = fmt.Fprint(w, `Usage: ownbot <command>
-
-Commands:
-
-  setup         Detect local models, probe one, and create a tool-free agent
-  connect       Configure public MCP integrations (disabled by default)
-  daemon start  Start the local daemon and open its dashboard
-  daemon stop   Stop the local daemon
-  daemon pair|devices  Pair and manage dashboard devices
-  daemon install|uninstall|status  Manage the current user's login service
-  inspect       Review hardware, model probes, agents, and tool permissions
-  help          Show this list
-
-Use ownbot <command> --help for command options. Run without a command to enter the task harness.
-`)
+	_, _ = fmt.Fprintln(w, "Usage: ownbot <command>")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, terminalAccent(w, "Commands"))
+	_, _ = fmt.Fprintln(w, "  setup    Detect installed local models and create a tool-free agent")
+	_, _ = fmt.Fprintln(w, "  daemon   Start, stop, check status, and manage dashboard access")
+	_, _ = fmt.Fprintln(w, "  connect  Configure MCP integrations (disabled by default)")
+	_, _ = fmt.Fprintln(w, "  inspect  Review local configuration, runs, approvals, and diagnostics")
+	_, _ = fmt.Fprintln(w, "  help     Show this list")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Run `ownbot <command> --help` for options. Run without a command to enter the task harness.")
 }
 
 func defaultAPIURL() string {
@@ -396,12 +380,15 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		config.Agent.Prompt = *prompt
 	}
 	input := bufio.NewReader(stdin)
+	_, _ = fmt.Fprintln(stdout, terminalAccent(stdout, "Setup"))
+	_, _ = fmt.Fprintln(stdout, "  1/3  Check local resources")
 	if memory, ok := availableMemory(); ok {
-		_, _ = fmt.Fprintf(stdout, "Available memory reported by the operating system: %.1f GiB\n", float64(memory)/(1024*1024*1024))
+		_, _ = fmt.Fprintf(stdout, "    Available memory (reported by OS): %.1f GiB\n", float64(memory)/(1024*1024*1024))
 	} else {
-		_, _ = fmt.Fprintln(stdout, "Available memory: unavailable from this operating system interface")
+		_, _ = fmt.Fprintln(stdout, "    Available memory: unavailable from this operating system interface")
 	}
-	_, _ = fmt.Fprintln(stdout, gpuMemoryStatus())
+	_, _ = fmt.Fprintf(stdout, "    %s\n", gpuMemoryStatus())
+	_, _ = fmt.Fprintln(stdout, "  2/3  Find an installed local model")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var installed []localModel
@@ -425,9 +412,9 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(installed) == 0 {
 		return offerOllama(input, stdout, *yes)
 	}
-	_, _ = fmt.Fprintln(stdout, "Detected installed local models:")
+	_, _ = fmt.Fprintln(stdout, "    Installed models:")
 	for _, candidate := range installed {
-		_, _ = fmt.Fprintf(stdout, "  %s: %s\n", candidate.Runtime, candidate.ID)
+		_, _ = fmt.Fprintf(stdout, "      %s: %s\n", candidate.Runtime, candidate.ID)
 	}
 	if config.Model.Provider != "" {
 		selectedProvider, normalizeErr := normalizeSetupProvider(config.Model.Provider)
@@ -457,9 +444,9 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	} else if len(installed) == 1 {
 		config.Model.Model, config.Model.Provider, config.Model.BaseURL = installed[0].ID, installed[0].Provider, installed[0].BaseURL
 	} else {
-		_, _ = fmt.Fprintln(stdout, "Choose an installed model by number:")
+		_, _ = fmt.Fprintln(stdout, "    Select an installed model:")
 		for i, candidate := range installed {
-			_, _ = fmt.Fprintf(stdout, "  %d) %s — %s (%s)\n", i+1, candidate.ID, candidate.Runtime, candidate.Provider)
+			_, _ = fmt.Fprintf(stdout, "      %d) %s — %s (%s)\n", i+1, candidate.ID, candidate.Runtime, candidate.Provider)
 		}
 		choice := "1"
 		if *yes {
@@ -478,6 +465,7 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		config.Model.Model, config.Model.Provider, config.Model.BaseURL = selected.ID, selected.Provider, selected.BaseURL
 	}
 	if config.Agent.Name == "" {
+		_, _ = fmt.Fprintln(stdout, "  3/3  Create a tool-free agent")
 		if *yes {
 			config.Agent.Name = "Assistant"
 		} else {
@@ -486,6 +474,8 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 				return errors.New("agent name required; use --agent-name or a complete --config file for unattended setup")
 			}
 		}
+	} else {
+		_, _ = fmt.Fprintln(stdout, "  3/3  Create a tool-free agent")
 	}
 	setupNotice := ""
 	if !daemonHealthy(config.APIURL) {
@@ -544,7 +534,15 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}, &agent); err != nil {
 		return fmt.Errorf("model %q was saved, but tool-free agent creation failed: %w", model.Name, err)
 	}
-	_, _ = fmt.Fprintf(stdout, "Setup saved and probed model %q. Created enabled, text-only agent %q with no tools or external integrations. No task was run.\n%sNext: ownbot daemon start\n", model.Name, agent.Name, setupNotice)
+	_, _ = fmt.Fprintln(stdout, terminalAccent(stdout, "Setup complete"))
+	_, _ = fmt.Fprintf(stdout, "  Saved and probed model: %q\n", model.Name)
+	_, _ = fmt.Fprintf(stdout, "  Created enabled, text-only agent: %q\n", agent.Name)
+	_, _ = fmt.Fprintln(stdout, "  Tools and external integrations: none")
+	_, _ = fmt.Fprintln(stdout, "  Task run: no")
+	if setupNotice != "" {
+		_, _ = fmt.Fprintln(stdout, "  "+strings.TrimSpace(setupNotice))
+	}
+	_, _ = fmt.Fprintln(stdout, "  Next: ownbot daemon start")
 	return nil
 }
 

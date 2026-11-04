@@ -14,3 +14,6 @@ scripts/browser-lab/artifacts/
 
 __pycache__/
 *.pyc
+
+.codex/skills/
+demo-site/scripts/explainer/output/

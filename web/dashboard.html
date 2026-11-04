@@ -13,12 +13,12 @@
   <header class="dash-header">
     <div class="wrap dash-header-inner">
       <a class="logo" href="/">ownbot</a>
+      <span id="connection-label" class="connection-label" aria-live="polite">Connecting to host…</span>
       <div class="header-actions">
         <button class="text-button forget-current-device" id="forget-current-device" type="button" hidden>Forget this browser</button>
         <button class="button outline" id="history-toggle" type="button" aria-controls="history-rail" aria-expanded="false">History</button>
         <button class="button outline" id="refresh-button" type="button">Refresh</button>
         <button class="button outline" id="setup-toggle" type="button" aria-haspopup="dialog">Setup</button>
-        <span id="connection-label" class="visually-hidden">Connecting</span>
       </div>
     </div>
   </header>
@@ -42,17 +42,19 @@
     <button class="history-backdrop" id="history-backdrop" type="button" aria-label="Close history" hidden></button>
     <div class="workspace-grid">
       <aside id="history-rail" class="history-rail" aria-label="Run history">
-        <div class="history-heading"><h2>History</h2><button class="text-button history-close" id="history-close" type="button">Close</button></div>
+        <div class="history-heading"><h2>Recent runs</h2><button class="text-button history-close" id="history-close" type="button">Close</button></div>
         <div id="runs-list" class="list-stack" aria-live="polite"><p class="empty-inline">Loading…</p></div>
       </aside>
       <div class="task-column">
         <section class="task-composer" aria-labelledby="task-heading">
           <h1 id="task-heading">New task</h1>
+          <p class="task-intro">Describe what you want done. Your agent runs on this host.</p>
           <div id="composer-empty" class="setup-empty" hidden>
-            <p>Set up a local model and agent from your terminal to start.</p>
-            <code>ownbot setup</code>
+            <h2>Set up your first agent</h2>
+            <p>Choose a local model and create an agent from your terminal.</p>
+            <div class="empty-actions"><code>ownbot setup</code><button class="button outline" id="empty-setup-button" type="button">View setup steps</button></div>
             <section class="recommendations" aria-labelledby="recommendations-heading">
-              <h2 id="recommendations-heading">Suggested model based on your hardware:</h2>
+              <h2 id="recommendations-heading">Models for this host</h2>
               <p id="recommendations-status" role="status">Checking host hardware…</p>
               <ul id="recommendations-list"></ul>
               <div id="recommendation-command" hidden></div>
@@ -61,7 +63,7 @@
           <form id="task-form" class="run-form" hidden>
             <label for="task-agent" id="task-agent-label" hidden>Agent</label>
             <select id="task-agent" name="agent" aria-label="Choose an agent" hidden></select>
-            <label class="visually-hidden" for="task-input">Task</label>
+            <label class="task-label" for="task-input">Task</label>
             <textarea id="task-input" name="input" rows="5" maxlength="64000" required placeholder="Describe the task…"></textarea>
             <div class="composer-footer"><span id="composer-state" role="status">Ready</span><button class="button primary" id="start-task-button" type="submit">Run task</button></div>
           </form>

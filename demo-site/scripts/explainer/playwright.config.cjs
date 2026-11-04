@@ -1,0 +1,2 @@
+const path=require('node:path');
+module.exports={testDir:__dirname,testMatch:'record.spec.cjs',timeout:240000,workers:1,retries:0,reporter:'list',outputDir:path.join(__dirname,'output','test'),webServer:{command:'node scripts/browser-lab/providers.cjs mcp',cwd:require('node:path').resolve(__dirname,'../../..'),url:'http://127.0.0.1:11435/__fixture/health',reuseExistingServer:false},use:{browserName:'chromium',headless:true,trace:'off',video:'off',launchOptions:process.env.OWNBOT_CHROMIUM_EXECUTABLE?{executablePath:process.env.OWNBOT_CHROMIUM_EXECUTABLE}:{}}};

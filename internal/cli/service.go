@@ -186,15 +186,16 @@ func runServiceCommand(action string, args []string, stdout, stderr io.Writer) e
 		}
 		return nil
 	}
-	_, _ = fmt.Fprintf(stdout, "User service: %s", serviceState(status))
+	_, _ = fmt.Fprintln(stdout, terminalAccent(stdout, "OwnBot status"))
+	_, _ = fmt.Fprintf(stdout, "  User service: %s", serviceState(status))
 	if status.Path != "" {
 		_, _ = fmt.Fprintf(stdout, " (%s)", status.Path)
 	}
 	_, _ = fmt.Fprintln(stdout)
 	if apiURL, urlErr := serviceAPIURL(cfg); urlErr == nil && daemonHealthy(apiURL) {
-		_, _ = fmt.Fprintf(stdout, "Daemon: running at %s\n", apiURL)
+		_, _ = fmt.Fprintf(stdout, "  Daemon: running at %s\n", apiURL)
 	} else {
-		_, _ = fmt.Fprintln(stdout, "Daemon: not running at the configured listener")
+		_, _ = fmt.Fprintln(stdout, "  Daemon: not running at the configured listener")
 	}
 	if !status.Supported {
 		return fmt.Errorf("%s; run `ownbot daemon start` for this session", status.Message)
