@@ -34,3 +34,7 @@ Follow-up application commit `90c7d59` passed native CI (60 Linux/macOS workflow
 ## 2026-11-02 documentation and sandbox
 
 Site is docs-only with the refined open-weight agent description; no videos are deployed. Root and legacy `/demos` both retain guides/search/anchors. Local and hosted browser suites each passed 260 assertions. The named Virtual sandbox workflow passed 60 actual CLI/daemon checks using deterministic loopback fixtures on a disposable Ubuntu VM. No local model was installed. See `docs/qa-2026-11-02.md` and `docs/testing-sandbox.md`; real inference and physical-device qualification remain separate.
+
+## 2026-11-03 UI and narrated sandbox demo
+
+Terminal presentation has five root commands, numbered setup steps, and interactive-only blue headings. Dashboard composition/history/status are clearer; results refresh after approved resume. The scripted fake model and interactive disposable launcher live in `scripts/sandbox/`. No local model weights are installed. Native CI, 18 dashboard browser cases, and 60 sandbox workflow checks passed. The narrated/captioned whiteboard explainer was recorded in a disposable GitHub VM; final recording run 41769448154 passed including the live approval and audit assertions. The video is separate from the docs-only website. Source and evidence: `demo-site/scripts/explainer/` and `docs/qa-2026-11-03.md`. Local final video: `dist/ownbot-explainer.mp4`.

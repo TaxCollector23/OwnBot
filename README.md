@@ -2,7 +2,7 @@
 
 [Docs](https://ownbot-demo.vercel.app/) · [GitHub Pages](https://taxcollector23.github.io/OwnBot/)
 
-Sources: [CLI and daemon](cmd/) · [Documentation site](demo-site/)
+Sources: [CLI and daemon](cmd/) · [Documentation site](demo-site/) · [Video](demo-site/scripts/explainer/)
 
 Run open-weight AI agents on your own computer. Connect tools, get tasks done, and approve changes from a dashboard on another device. Configure agents in the CLI. The daemon stays on your computer; local-network pairing works only on the same private Wi-Fi or Ethernet network. Cellular and public internet access are not supported.
 
