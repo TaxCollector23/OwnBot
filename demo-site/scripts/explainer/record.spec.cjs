@@ -1,5 +1,5 @@
-const {test,expect, freshBootstrap}=require('../../../../scripts/browser-lab/daemon-fixture.cjs');
-const {startFixtures}=require('../../../../scripts/sandbox/fixtures.cjs');
+const {test,expect, freshBootstrap}=require('../../../scripts/browser-lab/daemon-fixture.cjs');
+const {startFixtures}=require('../../../scripts/sandbox/fixtures.cjs');
 const fs=require('node:fs');const path=require('node:path');const {execFileSync}=require('node:child_process');
 const out=path.join(__dirname,'output');
 test('record whiteboard and real sandbox approval',async({browser,daemon})=>{

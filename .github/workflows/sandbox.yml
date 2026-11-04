@@ -28,6 +28,8 @@ jobs:
         run: |
           go build -trimpath -o "$RUNNER_TEMP/ownbot" ./cmd/ownbot
           go build -trimpath -o "$RUNNER_TEMP/ownbotd" ./cmd/ownbotd
+      - name: Check deterministic sandbox fixtures
+        run: node scripts/sandbox/test.cjs
       - name: Run the fixture-backed CLI and daemon workflow
         env:
           OWNBOT_BINARY: ${{ runner.temp }}/ownbot
@@ -41,8 +43,9 @@ jobs:
             echo
             echo '- Result: `${{ job.status }}`'
             echo '- Environment: disposable GitHub-hosted Ubuntu VM, with a 15-minute job limit.'
-            echo '- Harness: `scripts/test-local-workflows.cjs` against the built OwnBot CLI and daemon.'
-            echo '- Model and MCP services: deterministic loopback fixtures; no real model inference or external writes.'
+            echo '- Harness: deterministic sandbox fixture smoke test and `scripts/test-local-workflows.cjs` against the built OwnBot CLI and daemon.'
+            echo '- Model identity: `ownbot-sandbox-fake-v1`; scripted loopback responses, no model weights or real inference.'
+            echo '- MCP service: loopback fixture only; no external writes.'
             echo '- Credentials: no provider API keys or user account credentials are configured.'
             echo '- Artifacts: none uploaded; this summary and the action log contain aggregate test output only.'
           } >> "$GITHUB_STEP_SUMMARY"

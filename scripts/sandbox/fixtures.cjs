@@ -75,13 +75,13 @@ function makeModelHandler(stats) {
       stats.completedToolRequests += 1;
       answer = { content: 'Sandbox task complete. The approved sample note was created by the local MCP fixture.' };
     } else if (/\b(create\s+(?:a\s+)?note|sandbox-note|approval-check|denial-check)\b/i.test(prompt) && Array.isArray(payload.tools)) {
-      const tool = payload.tools.find((item) => item?.function?.name === 'create_note')?.function;
+      const tool = payload.tools.find((item) => item?.function?.name === 'create_note' || /^mcp_.*_create_note_[a-f0-9]+$/.test(item?.function?.name || ''))?.function;
       if (tool) {
         stats.taskRequests += 1;
         answer = { tool_calls: [{
           id: `sandbox-note-${stats.taskRequests}`,
           type: 'function',
-          function: { name: 'create_note', arguments: JSON.stringify({ title: 'Testing OwnBot locally' }) },
+          function: { name: tool.name, arguments: JSON.stringify({ title: 'Testing OwnBot locally' }) },
         }] };
       }
     }

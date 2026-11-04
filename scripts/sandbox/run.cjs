@@ -150,6 +150,15 @@ async function cleanup() {
 async function main() {
   const args = options(process.argv.slice(2));
   if (args.help) return showHelp();
+  const stopSignal = new Promise((resolve) => {
+    const stop = () => {
+      if (stopRequested) return;
+      stopRequested = true;
+      resolve();
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
   const daemonBinary = await requireBinary(args.daemon || process.env.OWNBOTD_BINARY, '--daemon / OWNBOTD_BINARY');
   const cliBinary = args.cli || process.env.OWNBOT_BINARY ? await requireBinary(args.cli || process.env.OWNBOT_BINARY, '--cli / OWNBOT_BINARY') : '';
 
@@ -204,15 +213,7 @@ async function main() {
   console.log(`Private runtime manifest: ${readyPath} (owner token and one-time dashboard URL inside; mode 0600)`);
   console.log(`Daemon log: ${logPath}`);
   console.log('Open the dashboard using dashboardURL from the private manifest. Press Ctrl-C to stop and remove all sandbox state.');
-  await new Promise((resolve) => {
-    const onSignal = () => {
-      if (stopRequested) return;
-      stopRequested = true;
-      resolve();
-    };
-    process.once('SIGINT', onSignal);
-    process.once('SIGTERM', onSignal);
-  });
+  await stopSignal;
 }
 
 main()
