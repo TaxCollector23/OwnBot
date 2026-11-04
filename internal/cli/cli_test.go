@@ -91,7 +91,8 @@ func TestSetupFromConfigIsHeadlessAndCreatesToolFreeAgent(t *testing.T) {
 	if !modelCreated || !agentCreated {
 		t.Fatalf("expected both API creates, model=%t agent=%t", modelCreated, agentCreated)
 	}
-	if !strings.Contains(stdout.String(), "enabled, text-only agent") || !strings.Contains(stdout.String(), "saved and probed model") {
+	setupOutput := strings.ToLower(stdout.String())
+	if !strings.Contains(setupOutput, "enabled, text-only agent") || !strings.Contains(setupOutput, "saved and probed model") || !strings.Contains(setupOutput, "1/3") || !strings.Contains(setupOutput, "2/3") || !strings.Contains(setupOutput, "3/3") {
 		t.Fatalf("setup output overstates behavior: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String()+stderr.String(), testToken) {
@@ -175,7 +176,7 @@ func TestHeadlessSetupAgainstActualDaemonAPI(t *testing.T) {
 	if len(agents) != 1 || !agents[0].Enabled || len(agents[0].Tools) != 0 || agents[0].Model != "qwen3:8b" {
 		t.Fatalf("saved agents: %+v", agents)
 	}
-	if !strings.Contains(out.String(), "saved and probed model") {
+	if !strings.Contains(strings.ToLower(out.String()), "saved and probed model") {
 		t.Fatalf("setup output: %s", out.String())
 	}
 }
@@ -867,10 +868,13 @@ func TestRootCommandsAndBareTaskHarness(t *testing.T) {
 	if err := Run([]string{"help"}, strings.NewReader(""), &help, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"setup", "connect", "daemon start", "inspect", "help"} {
+	for _, command := range []string{"setup", "connect", "daemon", "inspect", "help"} {
 		if !strings.Contains(help.String(), command) {
 			t.Fatalf("root help missing %q: %s", command, help.String())
 		}
+	}
+	if got := strings.Count(help.String(), "\n  "); got != 5 {
+		t.Fatalf("root help should list five commands, got %d: %s", got, help.String())
 	}
 	for _, hidden := range []string{"  model ", "  agent ", "  runs ", "  start daemon", "ownbotd"} {
 		if strings.Contains(help.String(), hidden) {
