@@ -211,6 +211,7 @@
       if (button.dataset.decision === 'approve' && button.dataset.runId) {
         const run = await api(`/api/runs/${encodeURIComponent(button.dataset.runId)}/resume`, {method:'POST', body:'{}'});
         message(`Approval recorded. Run ${text(run?.status, 'resumed')}.`, false);
+        await runDetails(button.dataset.runId);
       } else message(button.dataset.decision === 'deny' ? 'Denial recorded. The run was not resumed.' : 'Approval recorded.', false);
       await Promise.all([loadRuns(), loadApprovals()]);
     } catch (error) { message(`Could not record this decision: ${error.message}`, true); button.disabled = false; }

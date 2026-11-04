@@ -39,6 +39,9 @@ async function main() {
     const toolRequest = await modelCall(fixture.model.baseURL, [{ role: 'user', content: 'Create a note about testing OwnBot locally.' }], tools);
     assert.equal(toolRequest.tool_calls[0].function.name, 'create_note');
     assert.deepEqual(JSON.parse(toolRequest.tool_calls[0].function.arguments), { title: 'Testing OwnBot locally' });
+    const namespaced='mcp_ab12_create_note_cd34';
+    const actualTool=await modelCall(fixture.model.baseURL,[{role:'user',content:'Create a note about testing OwnBot locally.'}],[{type:'function',function:{name:namespaced,parameters:{type:'object'}}}]);
+    assert.equal(actualTool.tool_calls[0].function.name,namespaced);
     const summary = await modelCall(fixture.model.baseURL, [
       { role: 'user', content: 'Create a note about testing OwnBot locally.' },
       { role: 'tool', content: 'Fixture created the sample note: Testing OwnBot locally' },

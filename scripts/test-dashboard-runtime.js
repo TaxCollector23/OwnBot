@@ -77,6 +77,7 @@ async function main(){
   const decide=app.requests.findIndex(({path})=>path==='/api/approvals/ap1/approve');
   const resume=app.requests.findIndex(({path})=>path==='/api/runs/r1/resume');
   assert.ok(decide>=0&&resume>decide,'approval is recorded before its run resumes');
+  assert.ok(app.requests.slice(resume+1).some(({path,method})=>path==='/api/runs/r1'&&method==='GET'),'result is refreshed after approval resumes the run');
   assert.match(app.element('#page-message').textContent,/Approval recorded\. Run completed/);
   process.stdout.write('dashboard runtime regression: PASS (minimal reads, CLI setup state, task selection, run history, prompt-version display, approval resume)\n');
 }
