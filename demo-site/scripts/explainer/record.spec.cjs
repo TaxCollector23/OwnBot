@@ -7,9 +7,9 @@ test('record whiteboard and real sandbox approval',async({browser,daemon})=>{
  const api=async(route,body,method=body?'POST':'GET')=>{const r=await fetch(daemon.baseURL+route,{method,headers:{Authorization:`Bearer ${daemon.ownerToken}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});if(!r.ok)throw Error(route+' '+r.status);return r.status===204?null:r.json()};
  const context=await browser.newContext({viewport:{width:1280,height:720},recordVideo:{dir:out,size:{width:1280,height:720}}});const page=await context.newPage();const video=page.video();const begin=Date.now();const timeline=[];
  try{
- const model=await api('/api/models',{provider:'ollama',model:fixture.model.model,base_url:fixture.model.baseURL});
+ const model=await api('/api/models',{provider:'openai_compatible',model:fixture.model.model,base_url:fixture.model.baseURL});
  const probe=await api(`/api/models/${model.id}/probe`,{});expect(probe.probe.score).toBe(100);
- const agent=await api('/api/agents',{name:'Sandbox test agent · simulated model',model:model.id,enabled:true,max_steps:8,max_tokens:4096,timeout_seconds:120});
+ const agent=await api('/api/agents',{name:'Sandbox test agent · simulated model',model:model.id,enabled:true,max_steps:8,max_tokens:512,timeout_seconds:120,prompt:'Use create_note only when the task asks for a note. Then summarize the result in one short sentence.'});
  const server=await api('/api/mcp/servers',{name:'Sandbox notes only',transport:'streamable_http',endpoint:fixture.mcp.endpoint,allowed_tools:['create_note'],read_tools:[],write_tools:['create_note']});await api(`/api/mcp/servers/${server.id}/connect`,{});
  const tool=(await api('/api/tools')).find(t=>t.provider_tool==='create_note');expect(tool).toBeTruthy();await api(`/api/agents/${agent.id}`,{mcp_enabled:true,tools:[tool.name],mcp_servers:[server.id]},'PATCH');
  const story=JSON.parse(fs.readFileSync(path.join(out,'timing.json')));
@@ -37,5 +37,5 @@ test('record whiteboard and real sandbox approval',async({browser,daemon})=>{
  const remaining=scene.duration*1000-(Date.now()-start);if(remaining>0)await page.waitForTimeout(remaining);
  }
  fs.writeFileSync(path.join(out,'timeline.json'),JSON.stringify(timeline));
- }finally{await context.close();await video.saveAs(path.join(out,'capture.webm'));await fixture.close()}
+ }catch(error){console.log('Sandbox diagnostics',JSON.stringify({runs:await api('/api/runs'),model:await fetch(fixture.model.statsURL).then(r=>r.json()),tools:await api('/api/tools')}));throw error;}finally{await context.close();await video.saveAs(path.join(out,'capture.webm'));await fixture.close()}
 });
