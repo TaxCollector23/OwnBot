@@ -14,6 +14,6 @@ for i,t in enumerate(timeline):
   start=t['start']+j*t['duration']/len(chunks);end=t['start']+(j+1)*t['duration']/len(chunks)
   cues.append(f'{len(cues)+1}\n{stamp(start)} --> {stamp(end)}\n{chunk}')
 (p/'captions.srt').write_text('\n\n'.join(cues)+'\n')
-args+=['-filter_complex',';'.join(filters),'-map','0:v','-map','[a]','-vf',f"subtitles={p/'captions.srt'}:force_style='FontSize=19,PrimaryColour=&H00171717,BackColour=&H00F8FDFF,OutlineColour=&H00F8FDFF,BorderStyle=3,Outline=1,MarginV=18'",'-c:v','libx264','-preset','fast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart',str(p/'ownbot-explainer.mp4')]
+args+=['-filter_complex',';'.join(filters),'-map','0:v','-map','[a]','-vf',f"pad=iw:ih+100:0:0:color=0xfffdf8,subtitles={p/'captions.srt'}:force_style='FontSize=11,PrimaryColour=&H00171717,BackColour=&H00F8FDFF,OutlineColour=&H00F8FDFF,BorderStyle=3,Outline=1,MarginV=10'",'-c:v','libx264','-preset','fast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart',str(p/'ownbot-explainer.mp4')]
 subprocess.run(args,check=True)
 subprocess.run(['ffprobe','-v','error','-show_entries','format=duration:stream=codec_name,width,height','-of','json',str(p/'ownbot-explainer.mp4')],check=True)

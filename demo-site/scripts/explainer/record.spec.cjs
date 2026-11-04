@@ -23,6 +23,7 @@ test('record whiteboard and real sandbox approval',async({browser,daemon})=>{
   expect((await fetch(fixture.mcp.statsURL).then(r=>r.json())).writes).toBe(0);
   await page.locator('#approvals-list summary').first().click();
   await expect(page.locator('#approvals-list')).toContainText('Testing OwnBot locally');
+  await page.locator('#approvals-list details').scrollIntoViewIfNeeded();
   await page.evaluate(()=>{let e=document.createElement('div');e.id='demo-caption';e.textContent='SIMULATED MODEL · The write is waiting for approval';Object.assign(e.style,{position:'fixed',top:'12px',left:'20px',right:'20px',background:'#fff',border:'2px solid #2340f0',padding:'12px',font:'20px Arial',zIndex:9999});document.body.append(e)});
   await page.waitForTimeout(Math.max(0,11000-(Date.now()-start)));const approve=page.locator('#approvals-list').getByRole('button',{name:'Approve and resume'});const box=await approve.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2,{steps:30});await page.waitForTimeout(600);await approve.click();await expect(page.locator('#page-message')).toContainText('Approval recorded. Run completed.',{timeout:30000});
   expect((await fetch(fixture.mcp.statsURL).then(r=>r.json())).writes).toBe(1);
