@@ -68,8 +68,7 @@
           <article class="doc-article" id="doc-article">
             <section id="install">
               <h2>Install</h2>
-              <p class="lead">The npm package and matching GitHub release binaries have not been published yet. After release, install the prebuilt package with:</p>
-              <pre class="code-block">npm install -g ownbot</pre>
+              <p class="lead">The <a href="https://github.com/TaxCollector23/OwnBot/releases/tag/v0.1.0-alpha.4">v0.1.0-alpha.4 GitHub prerelease</a> provides CLI and daemon archives for manual testing. Verify the SHA-256 checksum file before running an archive. The alpha artifacts are unsigned and are not a production release. The npm package is not published yet, so <span class="mono">npm install -g ownbot</span> is not available.</p>
               <p>For a development install from source on macOS or Linux, use Go 1.24 or newer:</p>
               <pre class="code-block">git clone https://github.com/TaxCollector23/OwnBot.git
 cd OwnBot
@@ -77,7 +76,7 @@ mkdir -p bin
 go build -o bin/ownbot ./cmd/ownbot
 go build -o bin/ownbotd ./cmd/ownbotd
 ./bin/ownbot setup</pre>
-              <p>Details: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">first-run guide</a>. The published package will use verified prebuilt binaries and will not require Go.</p>
+              <p>Details: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">first-run guide</a>. The npm package installer is prepared to use verified prebuilt binaries without Go; npm publication is still pending.</p>
             </section>
 
             <section id="setup">
@@ -251,7 +250,7 @@ brew install --HEAD taxcollector23/ownbot/ownbot</pre>
                 <li>The Go test suite, dashboard regressions, 60 local CLI/daemon workflow checks, and npm installer fixture passed on macOS.</li>
                 <li>Browser QA passed 15 desktop/mobile viewport cases; three pinned-TLS LAN cases were skipped on macOS and are assigned to Linux CI.</li>
                 <li>The release builder created and verified six platform archives. Native Windows, Linux, and FreeBSD operation still requires platform testing.</li>
-                <li>The local npm install smoke test used mocked release assets without Go. The published npm package and GitHub release are not available yet.</li>
+                <li>The GitHub alpha prerelease includes SHA-256 checksummed binaries, but artifacts are unsigned. The npm package remains unpublished; the installer smoke test used mocked assets without Go.</li>
               </ul>
               <p>Current verification and release blockers: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">STATUS.md</a> and <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/release-gate.md">release gate</a>. Test the harness in a <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/testing-sandbox.md">disposable virtual sandbox</a>.</p>
             </section>

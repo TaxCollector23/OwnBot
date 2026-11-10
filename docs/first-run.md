@@ -1,13 +1,12 @@
 # First run
 
-The intended install-and-setup flow is:
+After installing the CLI and daemon from the [v0.1.0-alpha.4 GitHub prerelease](https://github.com/TaxCollector23/OwnBot/releases/tag/v0.1.0-alpha.4), start interactive setup:
 
 ```sh
-npm install -g ownbot
 ownbot setup
 ```
 
-The npm package and matching GitHub release assets have not been published yet. The first command becomes available after that release; the development build steps are in the [README](../README.md).
+The npm package is not published yet. The prerelease provides matching OS-specific CLI and daemon archives with SHA-256 checksum files for manual testing. The archives are unsigned and do not constitute a production release. Download and verify the archive for your OS before running setup; source-build instructions are in the [README](../README.md).
 
 ## Interactive setup
 

@@ -8,12 +8,15 @@ OwnBot runs open-weight models on your computer and lets you control agents from
 
 ## Quick start
 
+Download the matching CLI and daemon archives from the [v0.1.0-alpha.4 GitHub prerelease](https://github.com/TaxCollector23/OwnBot/releases/tag/v0.1.0-alpha.4). Verify each archive with its published SHA-256 checksum file before running it. These are unsigned alpha artifacts for manual testing, not a production release.
+
+The npm package is not published yet. After installing the two binaries, start setup with:
+
 ```sh
-npm install -g ownbot
 ownbot setup
 ```
 
-The npm package is not currently published, and its matching GitHub release assets do not exist yet. These commands will work after the first release. Public installation is gated on the checks in [STATUS.md](STATUS.md) and [the release gate](docs/release-gate.md).
+Use `ownbot setup` after installing the binaries. See [STATUS.md](STATUS.md) and [the release gate](docs/release-gate.md) for the remaining checks before a signed production release.
 
 During setup, select Ollama, LM Studio, or Jan; choose or download a local model; review the available permissions; then prepare the host certificate and scan the one-use QR code. Setup probes the model before it creates the agent. A model that fails any required tool-use capability check cannot be used by that agent. Tools start disabled, and every tool call remains subject to the server's runtime policy and approval checks.
 
@@ -32,7 +35,7 @@ go build -o bin/ownbotd ./cmd/ownbotd
 ./bin/ownbot setup
 ```
 
-This contributor workflow needs Go 1.24 or newer. The intended npm package installs verified platform binaries and does not require Go; `npm run test:install` exercises that installer with a local fixture without Go in `PATH`.
+This contributor workflow needs Go 1.24 or newer. The npm package installer is prepared to fetch verified platform binaries without Go, but npm publication is still pending. `npm run test:install` exercises it with a local fixture without Go in `PATH`.
 
 ## LAN and privacy
 
