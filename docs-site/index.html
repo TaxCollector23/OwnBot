@@ -69,14 +69,14 @@
   <main id="top" class="wrap">
     <div class="intro">
       <h1>Run open-weight AI agents on your own computer.</h1>
-      <p>Connect tools, get tasks done, and approve changes from a dashboard on another device. Configure ownbot in the CLI; use an SSH tunnel or private-network pairing for access.</p>
+      <p>Connect tools, get tasks done, and approve changes from a dashboard on another device. Configure ownbot in the CLI; pair devices on the same private network.</p>
     </div>
     <div class="layout">
       <aside aria-label="On this page">
         <p>On this page</p>
         <ul>
-          <li><a href="#install">Install from source</a></li>
-          <li><a href="#setup">Choose a model</a></li>
+          <li><a href="#install">Install</a></li>
+          <li><a href="#setup">First-run setup</a></li>
           <li><a href="#token">Local security token</a></li>
           <li><a href="#ssh">Use over SSH</a></li>
           <li><a href="#network">LAN access</a></li>
@@ -85,18 +85,29 @@
       </aside>
       <article id="content">
         <section id="install">
-          <h2>Install from source</h2>
-          <p>Development installs require Node.js 18+ and Go 1.24+. The install script builds the CLI and daemon for this machine.</p>
+          <h2>Install</h2>
+          <p>The npm package and matching GitHub release binaries have not been published yet. After release, install the prebuilt package with:</p>
+          <pre><code>npm install -g ownbot</code></pre>
+          <p>For a development install from source on macOS or Linux, build the CLI and daemon with Go 1.24 or newer:</p>
           <pre><code>git clone https://github.com/TaxCollector23/OwnBot.git
 cd OwnBot
-npm install -g . --allow-scripts=ownbot</code></pre>
-          <p>The npm package is not published yet. After publication, the alpha install will be <code>npm install -g ownbot@alpha</code>.</p>
+mkdir -p bin
+go build -o bin/ownbot ./cmd/ownbot
+go build -o bin/ownbotd ./cmd/ownbotd
+./bin/ownbot setup</code></pre>
+          <p>See the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">first-run guide</a> for prerequisites and current release status.</p>
         </section>
         <section id="setup">
-          <h2>Choose a local model</h2>
-          <p>Install and start a local runtime first. Setup detects installed models exposed by Ollama, LM Studio, llama.cpp, or vLLM. It probes the model before creating an enabled text-only agent with no tools.</p>
+          <h2>First-run setup</h2>
+          <p>Interactive setup detects Ollama, LM Studio, Jan, llama.cpp, and vLLM local endpoints. It shows available memory and storage, recommends a shortlist model when resource readings support a fit estimate, and can download an Ollama or LM Studio choice. Jan downloads remain in Jan Hub.</p>
           <pre><code>ownbot setup</code></pre>
-          <p>Setup does not download models or use hosted provider keys. If no model is detected, install a runtime and a model you choose, then run setup again. For a known installed model, use <code>ownbot setup --yes --model MODEL_ID</code>; a config file is available for unattended setup with custom names or prompts.</p>
+          <p>Every selected model must pass OwnBot's capability probe before setup creates the agent. The permissions review starts with no tools selected; runtime policy and approvals still apply to selected tools.</p>
+          <p>For an installed model in a non-interactive terminal, supply its local provider, endpoint, and model explicitly:</p>
+          <pre><code>ownbot setup --yes \
+  --provider ollama \
+  --base-url http://127.0.0.1:11434/v1 \
+  --model qwen3:1.7b</code></pre>
+          <p>A config file supports custom names and prompts. With the default daemon URL, successful setup enables LAN access and prints a one-use pairing QR. See the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">first-run guide</a> for runtime, download, and permission details.</p>
         </section>
         <section id="token">
           <h2>The local API token</h2>
@@ -113,9 +124,10 @@ ownbot daemon start</code></pre>
         </section>
         <section id="network">
           <h2>Access from another device</h2>
-          <p>For a device on the same private Wi-Fi or Ethernet, start LAN mode:</p>
+          <p>Interactive setup starts LAN mode and prints a one-use pairing QR after the selected model passes its probe. To start LAN access manually for a device on the same private Wi-Fi or Ethernet:</p>
           <pre><code>ownbot daemon start --lan</code></pre>
-          <p>Compare the printed HTTPS certificate fingerprint with the host dashboard before trusting the certificate, then run <code>ownbot daemon pair</code> in the host terminal to create a one-use link. LAN access does not provide cellular or public internet access. See the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/lan-access.md">LAN access guide</a> for certificate and revocation steps.</p>
+          <p>LAN access stays on the private network. OwnBot does not provide cellular/public access, a relay, or router port-forwarding. LAN HTTPS uses the host-local certificate in <code>~/.ownbot/lan.cert.cer</code>; the unsigned iOS profile is <code>~/.ownbot/lan.cert.mobileconfig</code>. Compare the SHA-256 fingerprint printed by OwnBot before installing either certificate. On iPhone or iPad, enable full trust in Certificate Trust Settings. On Android, install the certificate as a CA. If the browser still reports a certificate warning, do not continue or enter the pairing link. Real phone trust and pairing remain unverified; see the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/lan-access.md">LAN guide</a>.</p>
+          <p>The one-use QR link does not contain the host API token. For later pairing, run <code>ownbot daemon pair</code>. Revoke a device with <code>ownbot daemon devices --revoke DEVICE_ID</code>.</p>
         </section>
         <section id="more">
           <h2>More guides</h2>
@@ -124,6 +136,8 @@ ownbot daemon start</code></pre>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/inspect-and-audit.md">Inspect local setup and export audit history</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/approvals.md">Review and decide pending approvals</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/hardware.md">Hardware and model checks</a></li>
+            <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">Interactive first-run setup</a></li>
+            <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/lan-access.md">LAN certificate trust and pairing</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/service.md">Daemon service management</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">Release status</a></li>
             <li><a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/WRITING-DOCS.md">Documentation authoring</a></li>

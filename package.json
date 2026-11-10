@@ -6,23 +6,18 @@
     "ownbot": "scripts/ownbot.js"
   },
   "files": [
-    "cmd",
-    "internal",
-    "web",
-    "scripts/build.js",
+    "scripts/install.js",
     "scripts/ownbot.js",
-    "go.mod",
-    "go.sum",
-    "TODO.md",
-    "docs"
+    "README.md"
   ],
   "scripts": {
     "test": "go test ./... && node scripts/test-dashboard-auth.js && node scripts/test-dashboard-runtime.js && node scripts/test-dashboard-lan.js",
-    "postinstall": "node scripts/build.js",
+    "postinstall": "node scripts/install.js",
+    "test:install": "node scripts/test-npm-install.cjs",
     "test:browser": "playwright test --config=scripts/browser-lab/playwright.config.cjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.55.0"
+    "@playwright/test": "1.65.0"
   },
   "engines": {
     "node": ">=18"

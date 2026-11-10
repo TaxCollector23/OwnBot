@@ -1,38 +1,42 @@
 # Release status
 
-Updated 2026-10-29. `ownbot` is still in development. Do not treat this checkout as a signed or production release. The renamed `ownbot` package is not yet available from npm, and the documentation is live on GitHub Pages.
+Updated 2026-11-10. The first-run implementation is present in this checkout, but OwnBot remains a development build. No npm package or matching public binary release has been published. Do not treat this checkout as a signed or production release.
 
-## Current scope
+## Implemented in this checkout
 
-- The CLI supports local model detection and capability probing, daemon controls, and a local dashboard.
-- `ownbot inspect check` reports saved setup and permission metadata without inference, provider calls, or configuration changes.
-- `ownbot inspect approvals` lists, reviews, and explicitly approves or denies one request from the host CLI, including over SSH. Scheduled automations may continue after approval; manual runs resume separately. See the [approval guide](docs/approvals.md).
-- The website docs offer local text filtering, keyboard clearing, and navigation that reveals hidden sections. Search terms are not sent to a service.
-- `ownbot inspect audit export` exports complete stored history with exact run/event filters and safe output-file replacement. Tool-call argument/result bodies are redacted; other metadata can contain private information. See the [inspection guide](docs/inspect-and-audit.md).
-- Setup detects installed models from Ollama, LM Studio, llama.cpp, and vLLM. It does not download models or configure hosted provider keys.
-- LAN mode provides HTTPS pairing for devices on the host's private network. It does not provide cellular or public internet access.
-- macOS and Linux user-level service management is implemented; verify it on the target machine before relying on it for unattended operation.
+- The interactive first-run wizard detects local Ollama, LM Studio, Jan, llama.cpp, and vLLM endpoints; reports available host memory, GPU telemetry, and free model-storage space; recommends from a small local-model shortlist; and only creates an agent after a capability probe passes.
+- Ollama and LM Studio can download their recommended models with visible progress. Jan setup verifies that a model ID maps to metadata and non-empty local weight files; Jan model downloads still happen in Jan Hub.
+- Tool permissions come from the connected tools list, start disabled, and show risk labels. Local runtime credentials are stored in OwnBot's private local state and are not returned by the API.
+- Successful setup enables LAN access, prints the certificate fingerprint and a one-use pairing QR, and opens the mobile dashboard flow. LAN access stays on the private network; relay, public internet, cellular, and router port-forward access are unsupported.
+- `npm install -g ownbot` is prepared to download checksum-verified, prebuilt binaries for the supported release targets without requiring Go. It cannot install until matching GitHub release assets and the npm package are published.
+- The release pipeline checks artifact hashes but does not yet sign artifacts or verify signatures; release signing and signed update/rollback checks remain incomplete.
+- The dashboard reports when a submitted task is running. Results are still returned synchronously; token-by-token streaming is not implemented.
 
-## Verified evidence
+## Local verification on 2026-11-10
 
-- Native Go tests passed on macOS, Linux, and Windows; FreeBSD binaries cross-built in [CI](https://github.com/TaxCollector23/OwnBot/actions/runs/40739144312). Cross-building does not verify FreeBSD runtime behavior.
-- The isolated two-container [LAN lab](https://github.com/TaxCollector23/OwnBot/actions/runs/40739144275) passed pairing, replay, revocation, and restart persistence checks.
-- A disposable local npm tarball install built both binaries and verified SSH owner-link redemption, replay rejection, daemon inspection, and shutdown with a service-manager stub. This did not install a real login service.
-- Ollama and llama.cpp each passed all four real capability checks on a hosted CPU runner; see [measured model evidence](docs/hardware.md). This does not establish answer quality or target-hardware fit.
-- Scheduler fixtures cover twenty completed jobs, approval waits, cancellation recovery, live tool revocation, and uncertain-write handling. Real provider runs remain unverified.
+- `npm test` passed: the complete Go test suite and dashboard auth, runtime, and LAN regressions.
+- `npm run test:install` passed on macOS arm64 using mocked release assets and an install subprocess without Go in `PATH`.
+- `node scripts/test-local-workflows.cjs` passed 60 checks with locally built CLI and daemon binaries, including approval decisions, replay behavior, and 580 exported audit records.
+- `python3 -m unittest scripts.release.test_pipeline` passed both release-pipeline unit tests.
+- The release builder created and verified checksum manifests and archives for all six supported targets: macOS arm64/amd64, Linux arm64/amd64, Windows amd64, and FreeBSD amd64.
+- A Windows amd64 cross-build and native macOS CLI/daemon builds passed.
+- `git diff --check` passed.
+- `OWNBOTD_BINARY=/tmp/ownbot-daemon-final npm run test:browser` passed 15 Playwright cases across 1440 px desktop and 375/390 px phone viewports. Three LAN pairing cases were intentionally skipped on macOS because routes to its own private address resolve through `lo0`; the workflow delegates that pinned-TLS pairing coverage to Linux CI.
+- The local demo-site browser check passed 260 assertions at 320, 375, 768, and 1440 px, including navigation, search, keyboard access, and no-JavaScript reading. `python3 scripts/check-doc-links.py` passed after updating the Markdown and site guides.
+- `node scripts/sandbox/test.cjs` passed against scripted loopback fixtures. `scripts/sandbox/record-demo.cjs` completed a task, approval, and result flow without model weights and saved a 9.3-second mobile-sized browser recording at `demo-site/scripts/explainer/output/ownbot-sandbox-demo.webm`.
+- `npm audit` and `npm audit --omit=dev` both reported zero vulnerabilities after updating the test-only Playwright dependency.
 
-## Latest local verification
-
-The [2026-10-29 QA report](docs/qa-2026-10-29.md) records the full Go suite, dashboard regressions, 15 passing browser cases with 3 Mac LAN skips, and 50 real-CLI/disposable-daemon workflow checks. The new workflow exported 580 audit records and verified fixture approval, denial, redaction, and permission diagnostics. It used simulated model/MCP HTTP endpoints and installed no AI model. Native CI passed the Go tests and new CLI workflow on Linux, macOS, and Windows. Linux dashboard CI passed all 18 cases, and the isolated LAN lab passed. These remain automated/fixture results; see the report for exact evidence and limits.
+The installer smoke test uses a local fixture; the actual published npm tarball, GitHub release download, package-manager behavior, and installation/upgrade on each supported OS are not verified.
 
 ## Release work remaining
 
-- Verify a clean SSH-only setup and dashboard access through the printed SSH tunnel flow.
-- Test certificate trust, pairing, dashboard use, and revocation with real second-laptop and mobile devices on Wi-Fi.
-- Add and verify cellular/public access before documenting it as supported.
-- Validate local model probes on target hardware and complete real account integration, automation, security, update, and rollback checks in the [release gate](docs/release-gate.md).
-- Publish signed artifacts and the `ownbot` npm package only after the applicable release checks pass.
+- Run the browser suite in Linux CI to cover the three pinned-TLS pairing cases skipped by the local macOS runner.
+- On the same Wi-Fi, test certificate trust, pairing, dashboard use, and revocation with a real second laptop, iPhone, and Android device. Verify the host firewall, guest Wi-Fi/client isolation, VPN routing, and host IP-change behavior with a real peer.
+- Complete clean GUI-only and SSH-only installs, service-manager checks, model probes on target hardware, and real model downloads.
+- Complete the real Notion and Calendly account checks, Google OAuth setup, scheduler restart/retry, approval/audit/security checks, and signed update plus rollback verification in the [release gate](docs/release-gate.md).
+- Install the published npm package from a clean environment on every supported platform and verify checksum failures, install, upgrade, and configuration preservation.
+- Implement and verify release signatures plus signed update installation and rollback, then publish binary artifacts and the npm package only after applicable release-gate evidence is recorded.
 
-Automated tests and the isolated LAN lab do not establish physical-device, target-hardware, or public-release readiness. Check the [LAN guide](docs/lan-access.md) and [TODO](TODO.md) for details.
+Automated Go, browser-independent dashboard, installer-fixture, release-builder, and workflow-fixture tests do not establish physical-device, production-install, target-hardware, or public-release readiness. See the [first-run guide](docs/first-run.md), [LAN guide](docs/lan-access.md), [release gate](docs/release-gate.md), and [TODO](TODO.md).
 
-The follow-up approval CLI and searchable-docs verification is recorded in the same report: 60 local CLI/daemon checks, native CI on all three desktop operating systems, 222 local website assertions, and 223 production assertions passed. Linux dashboard CI passed all 18 cases. Native timeline pointer seeking was not established in the local headless browser; keyboard/API seeking and playback were checked.
+Historical QA from 2026-10-29 remains in [docs/qa-2026-10-29.md](docs/qa-2026-10-29.md); it predates this first-run work and does not replace the checks above.

@@ -12,6 +12,7 @@ function harness() {
   const requests = [];
   let agents = [];
   let runs = [];
+  let runGate = null;
   let approvals = [{id:'ap1',run_id:'r1',agent_id:'a1',tool:'calendar.write',status:'pending',reason:'Create event',args:{title:'Review'}}];
   const storage = new Map([['ownbot.api-token','token']]);
   function element(selector) {
@@ -33,7 +34,10 @@ function harness() {
     else if(path==='/api/setup/recommendations'&&method==='GET') data={host_memory_bytes:16*1024**3,suggestions:[{model:'qwen3:1.7b',install_command:'ollama pull qwen3:1.7b',reason:'Tested candidate'}]};
     else if(path==='/api/runs'&&method==='GET') data=runs;
     else if(path==='/api/approvals'&&method==='GET') data=approvals;
-    else if(path==='/api/agents/a1/runs'&&method==='POST') {data={id:'r2',agent_id:'a1',status:'completed',prompt_version:3};runs=[{id:'r2',agent_id:'a1',status:'completed',prompt_version:3}];}
+    else if(path==='/api/agents/a1/runs'&&method==='POST') {
+      if (runGate) return await runGate;
+      data={id:'r2',agent_id:'a1',status:'completed',prompt_version:3};runs=[{id:'r2',agent_id:'a1',status:'completed',prompt_version:3}];
+    }
     else if(path==='/api/runs/r2') data={id:'r2',status:'completed',prompt_version:3,output:'Fixture result.',steps:1,messages:[{role:'assistant',content:'Fixture result.'}]};
     else if(path==='/api/approvals/ap1/approve'&&method==='POST') {approvals=[];data={id:'ap1',status:'approved'};}
     else if(path==='/api/runs/r1/resume'&&method==='POST') data={id:'r1',status:'completed',prompt_version:2};
@@ -41,7 +45,7 @@ function harness() {
     return {ok:true,status:200,async text(){return body;}};
   }
   vm.runInNewContext(source,{document,sessionStorage,fetch,Headers,URLSearchParams,window:{location:{hostname:'127.0.0.1',hash:'',pathname:'/dashboard',search:''},history:{replaceState(){}}},console});
-  return {element,requests,setAgents(value){agents=value;},setApprovals(value){approvals=value;}};
+  return {element,requests,setAgents(value){agents=value;},setApprovals(value){approvals=value;},setRunGate(value){runGate=value;}};
 }
 
 const pause=()=>new Promise((resolve)=>setImmediate(resolve));
@@ -67,8 +71,19 @@ async function main(){
   const form=app.element('#task-form');
   form.dataset.agentId='a1';
   app.element('#task-input').value='Do one task';
-  await form.handlers.get('submit')({preventDefault(){},currentTarget:form});
+  let finishRun;
+  app.setRunGate(new Promise((resolve)=>{finishRun=resolve;}));
+  const submitting=form.handlers.get('submit')({preventDefault(){},currentTarget:form});
+  await pause();
+  assert.equal(app.element('#start-task-button').disabled,true,'task button locks while local execution is pending');
+  assert.equal(app.element('#task-input').disabled,true,'task input locks while local execution is pending');
+  assert.equal(app.element('#run-progress').hidden,false,'accessible execution progress appears during a run');
+  assert.match(app.element('#composer-state').textContent,/Running on this host/);
+  finishRun({ok:true,status:200,async text(){return JSON.stringify({id:'r2',agent_id:'a1',status:'completed',prompt_version:3});}});
+  await submitting;
+  app.setRunGate(null);
   assert.ok(app.requests.some(({path,method,body})=>path==='/api/agents/a1/runs'&&method==='POST'&&body.input==='Do one task'));
+  assert.equal(app.element('#run-progress').hidden,true,'execution progress clears after completion');
   assert.match(app.element('#run-detail').innerHTML,/Fixture result/);
   assert.match(app.element('#run-detail').innerHTML,/Prompt version 3/);
 

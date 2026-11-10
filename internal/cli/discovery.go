@@ -9,20 +9,27 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
 
 type localModel struct {
-	Provider string `json:"provider"`
-	BaseURL  string `json:"base_url"`
-	ID       string `json:"id"`
-	Runtime  string `json:"runtime"`
+	Provider      string `json:"provider"`
+	BaseURL       string `json:"base_url"`
+	ID            string `json:"id"`
+	Runtime       string `json:"runtime"`
+	SizeBytes     int64  `json:"size_bytes,omitempty"`
+	Format        string `json:"format,omitempty"`
+	ToolUse       bool   `json:"tool_use,omitempty"`
+	LocalVerified bool   `json:"local_verified,omitempty"`
 }
 
 type localEndpoint struct {
 	Runtime, Provider, BaseURL string
+	APIKey                     string
 	Ollama                     bool
+	Jan                        bool
 }
 
 func detectLocalModels(ctx context.Context) []localModel {
@@ -30,6 +37,7 @@ func detectLocalModels(ctx context.Context) []localModel {
 	return detectLocalModelsAt(ctx, client, []localEndpoint{
 		{Runtime: "Ollama", Provider: "ollama", BaseURL: "http://127.0.0.1:11434/v1", Ollama: true},
 		{Runtime: "LM Studio", Provider: "lm_studio", BaseURL: "http://127.0.0.1:1234/v1"},
+		{Runtime: "Jan", Provider: "jan", BaseURL: "http://127.0.0.1:1337/v1", APIKey: os.Getenv("OWNBOT_JAN_API_KEY"), Jan: true},
 		{Runtime: "llama.cpp", Provider: "openai_compatible", BaseURL: "http://127.0.0.1:8080/v1"},
 		{Runtime: "vLLM", Provider: "openai_compatible", BaseURL: "http://127.0.0.1:8000/v1"},
 	})
@@ -58,12 +66,21 @@ func detectLocalModelsAt(ctx context.Context, client *http.Client, endpoints []l
 				ID string `json:"id"`
 			} `json:"data"`
 		}
-		if getLocalJSON(ctx, client, candidate.BaseURL+"/models", &response) != nil {
+		if getLocalJSONWithKey(ctx, client, candidate.BaseURL+"/models", candidate.APIKey, &response) != nil {
 			continue
 		}
 		for _, model := range response.Data {
 			if strings.TrimSpace(model.ID) != "" {
-				found = append(found, localModel{Provider: candidate.Provider, BaseURL: candidate.BaseURL, ID: model.ID, Runtime: candidate.Runtime})
+				item := localModel{Provider: candidate.Provider, BaseURL: candidate.BaseURL, ID: model.ID, Runtime: candidate.Runtime}
+				if candidate.Jan {
+					info, ok := janInstalledModelInfo(model.ID, janDataDirectories())
+					if !ok {
+						continue
+					}
+					item.LocalVerified = true
+					item.SizeBytes = info.SizeBytes
+				}
+				found = append(found, item)
 			}
 		}
 	}
@@ -107,9 +124,16 @@ func discoverAtBaseURL(ctx context.Context, raw string) ([]localModel, error) {
 }
 
 func getLocalJSON(ctx context.Context, client *http.Client, address string, target any) error {
+	return getLocalJSONWithKey(ctx, client, address, "", target)
+}
+
+func getLocalJSONWithKey(ctx context.Context, client *http.Client, address, apiKey string, target any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -104,7 +104,7 @@ func New(dir string) (*Server, error) {
 	s.routes()
 	s.events.SetPrincipalValidator(s.validEventPrincipal)
 	s.modelClient = func(c ModelConfig) models.Client {
-		return &models.OpenAICompatible{BaseURL: c.BaseURL, Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		return &models.OpenAICompatible{BaseURL: c.BaseURL, APIKey: s.modelAPIKey(c.ID), Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	}
 	s.startAutomationWorker()
 	return s, nil
@@ -155,6 +155,7 @@ func (s *Server) migrate() error {
 CREATE TABLE IF NOT EXISTS mcp_servers(id TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,transport TEXT NOT NULL DEFAULT 'stdio',endpoint TEXT NOT NULL DEFAULT '',command TEXT NOT NULL,args_json TEXT NOT NULL DEFAULT '[]',working_directory TEXT NOT NULL DEFAULT '',environment_allowlist_json TEXT NOT NULL DEFAULT '[]',allowed_tools_json TEXT NOT NULL DEFAULT '[]',read_tools_json TEXT NOT NULL DEFAULT '[]',write_tools_json TEXT NOT NULL DEFAULT '[]',request_timeout_seconds INTEGER NOT NULL DEFAULT 30,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS mcp_oauth_tokens(server_id TEXT PRIMARY KEY REFERENCES mcp_servers(id) ON DELETE CASCADE,owner TEXT NOT NULL,client_id TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL DEFAULT '',expires_at INTEGER NOT NULL DEFAULT 0,discovery_json TEXT NOT NULL,scope TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS model_configs(id TEXT PRIMARY KEY,name TEXT NOT NULL DEFAULT '',provider TEXT NOT NULL,base_url TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS model_credentials(model_config_id TEXT PRIMARY KEY REFERENCES model_configs(id) ON DELETE CASCADE,api_key TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS model_probes(id INTEGER PRIMARY KEY AUTOINCREMENT,model_config_id TEXT NOT NULL REFERENCES model_configs(id) ON DELETE CASCADE,score INTEGER NOT NULL,json_output INTEGER NOT NULL,single_tool INTEGER NOT NULL,tool_choice INTEGER NOT NULL,argument_accuracy INTEGER NOT NULL,restricted INTEGER NOT NULL,probed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS agents(id TEXT PRIMARY KEY,name TEXT NOT NULL,model TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1,web_search INTEGER NOT NULL DEFAULT 0,mcp_enabled INTEGER NOT NULL DEFAULT 0,tools_json TEXT NOT NULL DEFAULT '[]',max_steps INTEGER NOT NULL DEFAULT 8,max_tokens INTEGER NOT NULL DEFAULT 4096,timeout_seconds INTEGER NOT NULL DEFAULT 120,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS prompt_versions(id INTEGER PRIMARY KEY AUTOINCREMENT,agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,version INTEGER NOT NULL,prompt TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(agent_id,version));
@@ -233,6 +234,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/tools", s.listTools)
 	s.mux.HandleFunc("GET /api/models", s.models)
 	s.mux.HandleFunc("POST /api/models", s.createModel)
+	s.mux.HandleFunc("PUT /api/models/{id}/credentials", s.storeModelCredential)
 	s.mux.HandleFunc("POST /api/models/{id}/probe", s.probeModel)
 	s.mux.HandleFunc("GET /api/agents", s.agents)
 	s.mux.HandleFunc("POST /api/agents", s.createAgent)
@@ -316,6 +318,10 @@ func (s *Server) security(next http.Handler) http.Handler {
 			}
 			if r.URL.Path == "/api/daemon/shutdown" && !isMaster {
 				http.Error(w, "unauthorized", 401)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/models/") && strings.HasSuffix(r.URL.Path, "/credentials") && !isMaster {
+				http.Error(w, "owner credential required", http.StatusForbidden)
 				return
 			}
 			if !isMaster && (!strings.HasPrefix(header, "Bearer ") || !loopbackPeer(r.RemoteAddr) || !s.validLocalSession(a)) {
@@ -876,7 +882,7 @@ type ModelConfig struct {
 
 func normalizeModelConfig(provider, baseURL string) (string, error) {
 	provider = strings.TrimSpace(strings.ToLower(provider))
-	if provider != "ollama" && provider != "lm_studio" && provider != "openai" && provider != "openai_compatible" {
+	if provider != "ollama" && provider != "lm_studio" && provider != "jan" && provider != "openai" && provider != "openai_compatible" {
 		return "", errors.New("unsupported provider")
 	}
 	if strings.TrimSpace(baseURL) == "" {
@@ -885,6 +891,8 @@ func normalizeModelConfig(provider, baseURL string) (string, error) {
 			baseURL = "http://127.0.0.1:11434/v1"
 		case "lm_studio":
 			baseURL = "http://127.0.0.1:1234/v1"
+		case "jan":
+			baseURL = "http://127.0.0.1:1337/v1"
 		case "openai":
 			baseURL = "https://api.openai.com/v1"
 		}
@@ -973,6 +981,47 @@ func (s *Server) createModel(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, c)
 }
 
+// storeModelCredential keeps an optional local runtime key in the private OwnBot
+// state database. Only the host owner token can write it; the value is never
+// included in model configuration, audit events, or API responses.
+func (s *Server) storeModelCredential(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := decode(r, &body); err != nil || strings.TrimSpace(body.APIKey) == "" || len(body.APIKey) > 4096 {
+		errJSON(w, http.StatusBadRequest, "invalid local runtime credential")
+		return
+	}
+	var provider, baseURL string
+	if err := s.db.QueryRow(`SELECT provider,base_url FROM model_configs WHERE id=?`, r.PathValue("id")).Scan(&provider, &baseURL); err != nil {
+		errJSON(w, http.StatusNotFound, "model configuration not found")
+		return
+	}
+	if provider != "jan" && provider != "lm_studio" && provider != "openai_compatible" {
+		errJSON(w, http.StatusConflict, "credentials are supported only for local OpenAI-compatible runtimes")
+		return
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !loopbackHost(u.Host) {
+		errJSON(w, http.StatusConflict, "credentials can be saved only for a loopback model endpoint")
+		return
+	}
+	if _, err = s.db.Exec(`INSERT INTO model_credentials(model_config_id,api_key,updated_at)VALUES(?,?,?) ON CONFLICT(model_config_id) DO UPDATE SET api_key=excluded.api_key,updated_at=excluded.updated_at`, r.PathValue("id"), body.APIKey, now()); err != nil {
+		errJSON(w, http.StatusInternalServerError, "could not save local runtime credential")
+		return
+	}
+	s.event("model.credential_saved", "local-user", map[string]any{"model_config_id": r.PathValue("id")})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) modelAPIKey(modelConfigID string) string {
+	var key string
+	if err := s.db.QueryRow(`SELECT api_key FROM model_credentials WHERE model_config_id=?`, modelConfigID).Scan(&key); err != nil {
+		return ""
+	}
+	return key
+}
+
 func (s *Server) probeModel(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		APIKey string `json:"api_key"`
@@ -995,8 +1044,12 @@ func (s *Server) probeModel(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 500, "could not read model configuration")
 		return
 	}
-	// The optional key is kept only in this request's client object and is never persisted, logged, or returned.
-	client := &models.OpenAICompatible{BaseURL: c.BaseURL, APIKey: b.APIKey, Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	// A request key takes precedence; otherwise use the credential saved by the owner for this local model.
+	apiKey := b.APIKey
+	if apiKey == "" {
+		apiKey = s.modelAPIKey(c.ID)
+	}
+	client := &models.OpenAICompatible{BaseURL: c.BaseURL, APIKey: apiKey, Client: &http.Client{Timeout: 4 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
 	defer cancel()
 	result, e := models.Probe(ctx, client, c.Model, 100)

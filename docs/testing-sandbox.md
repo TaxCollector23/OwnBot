@@ -20,6 +20,22 @@ The process chooses free loopback ports, writes daemon state and logs under a pr
 
 The model endpoint returns scripted probe responses and one scripted tool call. It does not run inference. The MCP fixture records one in-memory sample note and never writes outside its process. All fixture listeners bind to `127.0.0.1`; the daemon listener also binds to loopback.
 
+### Record a mobile-sized demo
+
+The recorder runs that same disposable fixture, opens the dashboard in a 390 × 844 Playwright browser viewport, submits the sample note task, records the approval, and saves the result screen as WebM. It uses no actual model weights, model download, provider key, phone app, or external service. The daemon and fixtures choose available loopback ports. A phone cannot use the host's `127.0.0.1`; for an actual phone, use the host's private LAN address and follow the [LAN guide](lan-access.md).
+
+Build the daemon and CLI from the checkout, then record:
+
+```sh
+go build -o /tmp/ownbot-sandbox-daemon ./cmd/ownbotd
+go build -o /tmp/ownbot-sandbox-cli ./cmd/ownbot
+OWNBOTD_BINARY=/tmp/ownbot-sandbox-daemon \
+OWNBOT_BINARY=/tmp/ownbot-sandbox-cli \
+node scripts/sandbox/record-demo.cjs
+```
+
+The recording is written to `demo-site/scripts/explainer/output/ownbot-sandbox-demo.webm`, a git-ignored output directory. Set `OWNBOT_DEMO_VIDEO` to choose a different output path. The browser viewport is mobile-sized emulation, not a physical phone recording.
+
 ## GitHub virtual sandbox
 
 The **Virtual sandbox** workflow starts a disposable GitHub-hosted Ubuntu VM, builds the real OwnBot CLI and daemon, runs the deterministic sandbox fixture smoke test, then runs `scripts/test-local-workflows.cjs` against the real binaries. Start it from **Actions → Virtual sandbox → Run workflow**, then choose the branch to test. It is manual-only and has a 15-minute job limit.

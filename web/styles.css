@@ -110,6 +110,8 @@ code, pre { font-family: var(--mono); }
 }
 .page-message.message-info { border-color: #d2d8eb; border-left-color: var(--blue); background: #f1f4ff; color: #23376f; }
 .page-message[hidden] { display: none; }
+.run-progress { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+.run-progress[hidden] { display: none; }
 
 .notice {
   max-width: 780px;

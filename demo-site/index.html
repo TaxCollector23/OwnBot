@@ -67,34 +67,39 @@
 
           <article class="doc-article" id="doc-article">
             <section id="install">
-              <h2>Install from source</h2>
-              <p class="lead">Development installs require Node.js 18+ and Go 1.24+. The install script builds the CLI and daemon for this machine.</p>
-              <p>Clone the repository, install the package globally, then run setup. The npm package name in the repo is <span class="mono">ownbot</span>. Use the <span class="mono">ownbot</span> command throughout.</p>
+              <h2>Install</h2>
+              <p class="lead">The npm package and matching GitHub release binaries have not been published yet. After release, install the prebuilt package with:</p>
+              <pre class="code-block">npm install -g ownbot</pre>
+              <p>For a development install from source on macOS or Linux, use Go 1.24 or newer:</p>
               <pre class="code-block">git clone https://github.com/TaxCollector23/OwnBot.git
 cd OwnBot
-npm install -g . --allow-scripts=ownbot
-ownbot setup</pre>
-              <p>The npm package is not published yet as a stable release. After publication, the alpha install will be:</p>
-              <pre class="code-block">npm install -g ownbot@alpha</pre>
-              <div class="callout">Setup does not download models and does not collect hosted provider API keys. Install a local runtime first if no model is detected.</div>
+mkdir -p bin
+go build -o bin/ownbot ./cmd/ownbot
+go build -o bin/ownbotd ./cmd/ownbotd
+./bin/ownbot setup</pre>
+              <p>Details: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">first-run guide</a>. The published package will use verified prebuilt binaries and will not require Go.</p>
             </section>
 
             <section id="setup">
-              <h2>Choose a local model</h2>
-              <p class="lead">Setup detects installed models exposed by Ollama, LM Studio, llama.cpp, or vLLM. It probes the model, then creates a text-only agent with no tools enabled.</p>
+              <h2>First-run model setup</h2>
+              <p class="lead">Interactive setup detects local Ollama, LM Studio, Jan, llama.cpp, and vLLM endpoints, scans host memory and storage, and recommends from a small shortlist when measurements support a fit estimate.</p>
               <p>Run interactive setup:</p>
               <pre class="code-block">ownbot setup</pre>
-              <p>For a known installed model, use headless setup:</p>
-              <pre class="code-block">ownbot setup --yes --model MODEL_ID</pre>
-              <p>If no model appears, install and start a local runtime, download a model you choose, then run setup again. A config file is available for unattended setup with custom names or prompts.</p>
+              <p>Setup can download an Ollama or LM Studio shortlist model. Download Jan models in Jan Hub. Every selected model is capability-probed before OwnBot creates an agent. The permission checklist starts with no tools selected; runtime policies and approval checks still apply.</p>
+              <p>For an installed model in a non-interactive terminal, provide all required local model fields:</p>
+              <pre class="code-block">ownbot setup --yes \
+  --provider ollama \
+  --base-url http://127.0.0.1:11434/v1 \
+  --model qwen3:1.7b</pre>
+              <p>A config file supports unattended custom names and prompts. On the default daemon URL, successful setup enables LAN access and prints a one-use pairing QR. Details: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/first-run.md">first-run guide</a>.</p>
               <h3>What setup creates</h3>
               <ul>
                 <li>A saved local model endpoint and probe result</li>
                 <li>A disabled or text-only agent with no tools until you enable capabilities</li>
                 <li>Daemon state under <span class="mono">~/.ownbot/</span> (or your <span class="mono">--data-dir</span>)</li>
               </ul>
-              <p>Open the dashboard after setup:</p>
-              <pre class="code-block">open http://127.0.0.1:8765/dashboard</pre>
+              <p>Open the local owner dashboard after setup:</p>
+              <pre class="code-block">ownbot daemon start</pre>
             </section>
 
             <section id="token">
@@ -112,7 +117,7 @@ ownbot setup</pre>
 
             <section id="ssh">
               <h2>Use over SSH</h2>
-              <p class="lead">Install ownbot on the host, run setup there, and start the daemon from the SSH session. The host keeps its state and token locally.</p>
+              <p class="lead">Install ownbot on the host and run setup from the SSH session. Setup starts LAN access for the default daemon URL; the host keeps its state and token locally.</p>
               <pre class="code-block">ssh user@host
 cd OwnBot
 ownbot setup
@@ -137,12 +142,11 @@ ownbot daemon start --lan</pre>
               <p>Choose an explicit private address when automatic selection is wrong:</p>
               <pre class="code-block">ownbot daemon start --lan --lan-address 192.168.1.25:8766</pre>
               <h3>Certificate trust</h3>
-              <p>The LAN HTTPS certificate is self-signed. Compare the printed SHA-256 fingerprint with the host before trusting it. You can compute the fingerprint independently:</p>
-              <pre class="code-block">openssl x509 -in ~/.ownbot/lan.cert.pem -noout -fingerprint -sha256</pre>
-              <p>Transfer only <span class="mono">lan.cert.pem</span> over a method you trust. Never share <span class="mono">lan.key.pem</span>.</p>
+              <p>Successful setup prints the host's SHA-256 certificate fingerprint and a one-use pairing QR. The public DER certificate is <span class="mono">~/.ownbot/lan.cert.cer</span>; an unsigned iOS profile is <span class="mono">~/.ownbot/lan.cert.mobileconfig</span>. Verify the fingerprint before installing the certificate. On iPhone/iPad, enable full trust in Certificate Trust Settings. On Android, install as a CA. Never share <span class="mono">lan.key.pem</span>, and do not continue through a browser certificate warning.</p>
+              <p>Real phone certificate installation and pairing have not been physically verified. Follow the <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/lan-access.md">LAN guide</a> for exact steps. Cellular/public access, relay, and router port-forwarding are unsupported.</p>
               <h3>Pair and revoke</h3>
               <ol>
-                <li>Start LAN mode and open the local dashboard with an owner session.</li>
+                <li>Start LAN mode, trust the host certificate on the device, and scan the one-use QR printed by setup, or create another link from the host terminal.</li>
                 <li>Run <span class="mono">ownbot daemon pair</span> on the host and send the one-use pairing link only to the intended device.</li>
                 <li>Open the HTTPS link on that device and submit a device name.</li>
                 <li>Revoke later with <span class="mono">ownbot daemon devices --revoke DEVICE_ID</span>.</li>
@@ -238,18 +242,18 @@ brew install --HEAD taxcollector23/ownbot/ownbot</pre>
               <h3>Current scope</h3>
               <ul>
                 <li>CLI supports local model detection and capability probing, daemon controls, and a local dashboard.</li>
-                <li>Setup detects Ollama, LM Studio, llama.cpp, and vLLM. It does not download models or configure hosted provider keys.</li>
+                <li>Interactive setup detects local Ollama, LM Studio, Jan, llama.cpp, and vLLM endpoints; it can download Ollama and LM Studio shortlist models.</li>
                 <li>LAN mode provides HTTPS pairing on the host’s private network only.</li>
                 <li>macOS and Linux user-level service management is implemented; verify it on the target machine before relying on it unattended.</li>
               </ul>
               <h3>Verified evidence</h3>
               <ul>
-                <li>Native Go tests passed on macOS, Linux, and Windows; FreeBSD binaries cross-built in CI.</li>
-                <li>Isolated two-container LAN lab passed pairing, replay, revocation, and restart persistence checks.</li>
-                <li>Disposable local npm tarball install verified SSH owner-link redemption, replay rejection, daemon inspection, and shutdown with a service-manager stub.</li>
-                <li>Ollama and llama.cpp each passed all four real capability checks on hosted CPU runners.</li>
+                <li>The Go test suite, dashboard regressions, 60 local CLI/daemon workflow checks, and npm installer fixture passed on macOS.</li>
+                <li>Browser QA passed 15 desktop/mobile viewport cases; three pinned-TLS LAN cases were skipped on macOS and are assigned to Linux CI.</li>
+                <li>The release builder created and verified six platform archives. Native Windows, Linux, and FreeBSD operation still requires platform testing.</li>
+                <li>The local npm install smoke test used mocked release assets without Go. The published npm package and GitHub release are not available yet.</li>
               </ul>
-              <p>Test the harness in a <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/testing-sandbox.md">disposable virtual sandbox</a>. Full notes: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">STATUS.md</a>. Upstream docs site: <a href="https://taxcollector23.github.io/OwnBot/">GitHub Pages</a>.</p>
+              <p>Current verification and release blockers: <a href="https://github.com/TaxCollector23/OwnBot/blob/main/STATUS.md">STATUS.md</a> and <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/release-gate.md">release gate</a>. Test the harness in a <a href="https://github.com/TaxCollector23/OwnBot/blob/main/docs/testing-sandbox.md">disposable virtual sandbox</a>.</p>
             </section>
           </article>
         </div>

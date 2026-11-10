@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"ownbot/internal/daemon"
@@ -231,6 +232,55 @@ func setupManagedDaemon(args []string, apiURL, dataDir string, stdout io.Writer)
 		return setupSessionFallback(runtime.GOOS, args, apiURL, dataDir, stdout, err, startDaemon)
 	}
 	return "Daemon is managed by the user login service.\n", nil
+}
+
+func ensureSetupLAN(client *Client, apiURL, dataDir string, stdout io.Writer) ([]string, string, error) {
+	var access struct {
+		Enabled bool     `json:"enabled"`
+		URLs    []string `json:"urls"`
+	}
+	if err := client.Do(backgroundContext(), "GET", "/api/access", nil, &access); err != nil {
+		return nil, "", fmt.Errorf("could not check LAN access: %w", err)
+	}
+	if access.Enabled && len(access.URLs) > 0 {
+		return access.URLs, "", nil
+	}
+	if strings.TrimRight(apiURL, "/") != strings.TrimRight(defaultAPIURL(), "/") {
+		return nil, "", errors.New("automatic LAN pairing requires OwnBot's default loopback daemon URL; custom URLs need `ownbot daemon start --lan`")
+	}
+	lanArgs, err := setupDaemonArgsWithLAN(apiURL, dataDir, true)
+	if err != nil {
+		return nil, "", err
+	}
+	notice := ""
+	if !service.Supported(runtime.GOOS) && daemonHealthy(apiURL) {
+		stopArgs := []string{"--url", apiURL, "--data-dir", dataDir}
+		if err := stopDaemon(stopArgs, stdout, io.Discard); err != nil {
+			return nil, "", err
+		}
+		notice, err = setupManagedDaemon(lanArgs, apiURL, dataDir, stdout)
+		if err != nil {
+			loopbackArgs, argsErr := setupDaemonArgs(apiURL, dataDir)
+			if argsErr == nil {
+				if restoreErr := startDaemon(loopbackArgs, apiURL, dataDir, stdout, false); restoreErr != nil {
+					err = errors.Join(err, fmt.Errorf("could not restore the loopback daemon: %w", restoreErr))
+				}
+			}
+			return nil, "", err
+		}
+	} else {
+		notice, err = setupManagedDaemon(lanArgs, apiURL, dataDir, stdout)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	if err := client.Do(backgroundContext(), "GET", "/api/access", nil, &access); err != nil {
+		return nil, notice, fmt.Errorf("daemon started with LAN access, but its network state could not be read: %w", err)
+	}
+	if !access.Enabled || len(access.URLs) == 0 {
+		return nil, notice, errors.New("daemon restarted, but did not enable a LAN dashboard address")
+	}
+	return access.URLs, notice, nil
 }
 
 func setupSessionFallback(goos string, args []string, apiURL, dataDir string, stdout io.Writer, installErr error, start func([]string, string, string, io.Writer, bool) error) (string, error) {

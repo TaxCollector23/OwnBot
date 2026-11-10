@@ -8,6 +8,11 @@ import (
 )
 
 func readCPUName() string {
+	if runtime.GOOS == "windows" {
+		if value := strings.TrimSpace(os.Getenv("PROCESSOR_IDENTIFIER")); value != "" {
+			return value
+		}
+	}
 	if runtime.GOOS == "linux" {
 		if raw, err := os.ReadFile("/proc/cpuinfo"); err == nil {
 			for _, line := range strings.Split(string(raw), "\n") {

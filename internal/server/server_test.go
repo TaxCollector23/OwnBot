@@ -8,6 +8,7 @@ import (
 	"os"
 	"ownbot/internal/models"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -68,6 +69,80 @@ func TestSensitiveReadRequiresTokenAndStatusIsLoopbackOnly(t *testing.T) {
 	}
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Service != "ownbot" {
 		t.Fatalf("status must identify this daemon: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestLocalModelCredentialRequiresOwnerAndNeverAppearsInResponsesOrAudit(t *testing.T) {
+	s, token := testApp(t)
+	created := request(t, s.Handler(), "POST", "/api/models", `{"provider":"jan","model":"local-model","base_url":"http://127.0.0.1:1337/v1"}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create local model: %d %s", created.Code, created.Body.String())
+	}
+	var config ModelConfig
+	if err := json.Unmarshal(created.Body.Bytes(), &config); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "jan-runtime-secret"
+	path := "/api/models/" + config.ID + "/credentials"
+	if w := request(t, s.Handler(), http.MethodPut, path, `{"api_key":"`+secret+`"}`, "127.0.0.1:8765", "http://127.0.0.1:8765", ""); w.Code != http.StatusForbidden {
+		t.Fatalf("credential write without owner token: %d %s", w.Code, w.Body.String())
+	}
+	stored := request(t, s.Handler(), http.MethodPut, path, `{"api_key":"`+secret+`"}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if stored.Code != http.StatusNoContent {
+		t.Fatalf("store owner credential: %d %s", stored.Code, stored.Body.String())
+	}
+	for _, endpoint := range []struct{ method, path string }{{http.MethodGet, "/api/models"}, {http.MethodGet, "/api/audit"}} {
+		response := request(t, s.Handler(), endpoint.method, endpoint.path, "", "127.0.0.1:8765", "", token)
+		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("credential leaked through %s %s: %d %s", endpoint.method, endpoint.path, response.Code, response.Body.String())
+		}
+	}
+	if got := s.modelAPIKey(config.ID); got != secret {
+		t.Fatalf("stored credential = %q, want private saved key", got)
+	}
+}
+
+func TestLocalModelCredentialRejectsNonLoopbackEndpoint(t *testing.T) {
+	s, token := testApp(t)
+	created := request(t, s.Handler(), "POST", "/api/models", `{"provider":"openai_compatible","model":"test","base_url":"https://models.example/v1"}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create HTTPS config: %d %s", created.Code, created.Body.String())
+	}
+	var config ModelConfig
+	if err := json.Unmarshal(created.Body.Bytes(), &config); err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, s.Handler(), http.MethodPut, "/api/models/"+config.ID+"/credentials", `{"api_key":"secret"}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("credential write to hosted endpoint: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAgentToolPermissionsPersistExactlyAsSelected(t *testing.T) {
+	s, token := testApp(t)
+	created := request(t, s.Handler(), http.MethodPost, "/api/agents", `{"name":"Scoped","model":"local","enabled":true,"tools":["notes.read"]}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create selected agent: %d %s", created.Code, created.Body.String())
+	}
+	var agent Agent
+	if err := json.Unmarshal(created.Body.Bytes(), &agent); err != nil {
+		t.Fatal(err)
+	}
+	updated := request(t, s.Handler(), http.MethodPatch, "/api/agents/"+agent.ID, `{"tools":["notes.read","calendar.create"]}`, "127.0.0.1:8765", "http://127.0.0.1:8765", token)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update selected permissions: %d %s", updated.Code, updated.Body.String())
+	}
+	listed := request(t, s.Handler(), http.MethodGet, "/api/agents", "", "127.0.0.1:8765", "", token)
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list selected permissions: %d %s", listed.Code, listed.Body.String())
+	}
+	var agents []Agent
+	if err := json.Unmarshal(listed.Body.Bytes(), &agents); err != nil || len(agents) != 1 {
+		t.Fatalf("read persisted permissions: agents=%+v err=%v", agents, err)
+	}
+	want := []string{"notes.read", "calendar.create"}
+	if !reflect.DeepEqual(agents[0].Tools, want) {
+		t.Fatalf("persisted permissions=%v, want %v", agents[0].Tools, want)
 	}
 }
 func TestMutationsRejectHostAndOrigin(t *testing.T) {

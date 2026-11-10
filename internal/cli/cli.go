@@ -243,7 +243,7 @@ func printHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage: ownbot <command>")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, terminalAccent(w, "Commands"))
-	_, _ = fmt.Fprintln(w, "  setup    Detect installed local models and create a tool-free agent")
+	_, _ = fmt.Fprintln(w, "  setup    Configure a local model and agent; interactive setup can pair LAN devices")
 	_, _ = fmt.Fprintln(w, "  daemon   Start, stop, check status, and manage dashboard access")
 	_, _ = fmt.Fprintln(w, "  connect  Configure MCP integrations (disabled by default)")
 	_, _ = fmt.Fprintln(w, "  inspect  Review local configuration, runs, approvals, and diagnostics")
@@ -302,7 +302,7 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	dataDir := fs.String("data-dir", dataDirDefault, "daemon state directory containing api.token")
 	configPath := fs.String("config", "", "TOML or JSON setup file for unattended setup")
 	yes := fs.Bool("yes", false, "accept only unambiguous local setup choices without prompting")
-	provider := fs.String("provider", "", "local provider: ollama, lm_studio, llama.cpp, or vllm")
+	provider := fs.String("provider", "", "local provider: ollama, lm_studio, jan, llama.cpp, or vllm")
 	baseURL := fs.String("base-url", "", "local loopback OpenAI-compatible endpoint")
 	modelName := fs.String("model-name", "", "display name for the model configuration")
 	modelID := fs.String("model", "", "model identifier (required)")
@@ -378,6 +378,9 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	if *prompt != "" {
 		config.Agent.Prompt = *prompt
+	}
+	if *configPath == "" && *provider == "" && *baseURL == "" && *modelID == "" && isInteractiveSetup(stdin, stdout) {
+		return runInteractiveSetup(config.APIURL, *dataDir, stdin, stdout, stderr)
 	}
 	input := bufio.NewReader(stdin)
 	_, _ = fmt.Fprintln(stdout, terminalAccent(stdout, "Setup"))
@@ -498,14 +501,22 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if config.Model.Name == "" {
 		config.Model.Name = config.Model.Provider + " · " + config.Model.Model
 	}
-	model := modelConfig{}
-	if err := client.Do(backgroundContext(), "POST", "/api/models", map[string]string{
-		"provider": config.Model.Provider,
-		"name":     config.Model.Name,
-		"base_url": config.Model.BaseURL,
-		"model":    config.Model.Model,
-	}, &model); err != nil {
+	selectedModel := setupModelCandidate{Provider: config.Model.Provider, BaseURL: config.Model.BaseURL, ID: config.Model.Model}
+	model, err := saveOrReuseModel(client, selectedModel, config.Model.Name)
+	if err != nil {
 		return fmt.Errorf("could not save model configuration: %w", err)
+	}
+	var key string
+	switch model.Provider {
+	case "jan":
+		key = strings.TrimSpace(os.Getenv("OWNBOT_JAN_API_KEY"))
+	case "lm_studio":
+		key = strings.TrimSpace(os.Getenv("LM_API_TOKEN"))
+	}
+	if key != "" {
+		if err := client.Do(backgroundContext(), http.MethodPut, "/api/models/"+urlPath(model.ID)+"/credentials", map[string]string{"api_key": key}, nil); err != nil {
+			return errors.New("could not store the local runtime credential; it was not printed or logged")
+		}
 	}
 	var probe struct {
 		Probe struct {
@@ -524,14 +535,12 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return fmt.Errorf("model %q failed one or more required capability checks; no agent was created", model.Name)
 	}
 
-	agent := agentConfig{}
-	if err := client.Do(backgroundContext(), "POST", "/api/agents", map[string]any{
-		"name":    config.Agent.Name,
-		"model":   config.Model.Model,
-		"enabled": true,
-		"tools":   []string{},
-		"prompt":  config.Agent.Prompt,
-	}, &agent); err != nil {
+	initialPrompt := config.Agent.Prompt
+	if strings.TrimSpace(initialPrompt) == "" {
+		initialPrompt = "You are a helpful local assistant. Answer clearly and ask before taking actions that are not explicitly authorized."
+	}
+	agent, err := saveOrReuseAgent(client, config.Agent.Name, config.Model.Model, initialPrompt, []string{})
+	if err != nil {
 		return fmt.Errorf("model %q was saved, but tool-free agent creation failed: %w", model.Name, err)
 	}
 	_, _ = fmt.Fprintln(stdout, terminalAccent(stdout, "Setup complete"))
@@ -542,7 +551,21 @@ func runSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if setupNotice != "" {
 		_, _ = fmt.Fprintln(stdout, "  "+strings.TrimSpace(setupNotice))
 	}
-	_, _ = fmt.Fprintln(stdout, "  Next: ownbot daemon start")
+	if strings.TrimRight(config.APIURL, "/") == strings.TrimRight(defaultAPIURL(), "/") {
+		urls, notice, err := ensureSetupLAN(client, config.APIURL, *dataDir, stdout)
+		if err != nil {
+			return err
+		}
+		if notice != "" {
+			_, _ = fmt.Fprintln(stdout, "  "+strings.TrimSpace(notice))
+		}
+		if len(urls) == 0 {
+			return errors.New("setup completed but no LAN dashboard URL was returned")
+		}
+		_, _ = fmt.Fprintf(stdout, "  Host: %s\n  Network: Local only\n", hostLabel(urls[0]))
+		return printPairingQR(client, stdout, *dataDir, urls)
+	}
+	_, _ = fmt.Fprintln(stdout, "  Next: start LAN access with `ownbot daemon start --lan` when you want to pair another device")
 	return nil
 }
 
@@ -552,10 +575,12 @@ func normalizeSetupProvider(provider string) (string, error) {
 		return "ollama", nil
 	case "lm_studio", "lm studio", "lm-studio":
 		return "lm_studio", nil
+	case "jan":
+		return "jan", nil
 	case "llama.cpp", "llama_cpp", "llamacpp", "vllm", "vllm-server", "openai_compatible":
 		return "openai_compatible", nil
 	default:
-		return "", errors.New("setup supports Ollama, llama.cpp, LM Studio, and vLLM on loopback")
+		return "", errors.New("setup supports Ollama, llama.cpp, LM Studio, Jan, and vLLM on loopback")
 	}
 }
 

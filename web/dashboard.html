@@ -65,6 +65,7 @@
             <select id="task-agent" name="agent" aria-label="Choose an agent" hidden></select>
             <label class="task-label" for="task-input">Task</label>
             <textarea id="task-input" name="input" rows="5" maxlength="64000" required placeholder="Describe the task…"></textarea>
+            <p id="run-progress" class="run-progress" role="status" aria-live="polite" hidden>The local model is processing your task on this host. This can take a moment.</p>
             <div class="composer-footer"><span id="composer-state" role="status">Ready</span><button class="button primary" id="start-task-button" type="submit">Run task</button></div>
           </form>
         </section>

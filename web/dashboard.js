@@ -225,14 +225,28 @@
     if (!input || !id) return;
     const submit = q('#start-task-button');
     submit.disabled = true;
+    const inputField = q('#task-input');
+    const composerState = q('#composer-state');
+    const progress = q('#run-progress');
+    const oldLabel = submit.textContent;
+    inputField.disabled = true;
+    submit.textContent = 'Working…';
+    progress.hidden = false;
+    composerState.textContent = 'Running on this host…';
     try {
       const run = await api(`/api/agents/${encodeURIComponent(id)}/runs`, {method:'POST', body:JSON.stringify({input})});
       q('#task-input').value = '';
       message(`Run ${text(run.id)} finished with status ${text(run.status, 'unknown')}.`, run.status === 'failed');
       await Promise.all([loadRuns(), loadApprovals()]);
       if (run.id) await runDetails(run.id);
-    } catch (error) { message(`Could not start the task: ${error.message}`, true); }
-    finally { submit.disabled = false; }
+    } catch (error) { message(`Task could not be completed: ${error.message}`, true); }
+    finally {
+      submit.disabled = false;
+      submit.textContent = oldLabel;
+      inputField.disabled = false;
+      progress.hidden = true;
+      composerState.textContent = 'Ready';
+    }
   });
   pairForm.addEventListener('submit', async (event) => {
     event.preventDefault();

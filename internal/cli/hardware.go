@@ -222,7 +222,7 @@ func modelProbePass(probe map[string]any) (bool, string) {
 
 func isLocalModelProvider(provider string) bool {
 	switch provider {
-	case "ollama", "lm_studio", "openai_compatible":
+	case "ollama", "lm_studio", "jan", "openai_compatible":
 		return true
 	default:
 		return false
@@ -240,6 +240,8 @@ func isLocalModelConfig(config modelConfig) bool {
 			base = "http://127.0.0.1:11434/v1"
 		case "lm_studio":
 			base = "http://127.0.0.1:1234/v1"
+		case "jan":
+			base = "http://127.0.0.1:1337/v1"
 		default:
 			return false
 		}

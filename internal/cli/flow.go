@@ -463,6 +463,10 @@ func runTask(agentID, task string, stdout io.Writer) error {
 }
 
 func setupDaemonArgs(apiURL, dataDir string) ([]string, error) {
+	return setupDaemonArgsWithLAN(apiURL, dataDir, false)
+}
+
+func setupDaemonArgsWithLAN(apiURL, dataDir string, lan bool) ([]string, error) {
 	args := []string{"--data-dir", filepath.Clean(dataDir)}
 	u, err := url.Parse(apiURL)
 	if err != nil || u.Scheme != "http" || u.Host == "" {
@@ -473,5 +477,8 @@ func setupDaemonArgs(apiURL, dataDir string) ([]string, error) {
 		return nil, errors.New("automatic daemon startup requires a host and port")
 	}
 	args = append(args, "--listen", net.JoinHostPort(host, port))
+	if lan {
+		args = append(args, "--lan")
+	}
 	return args, nil
 }

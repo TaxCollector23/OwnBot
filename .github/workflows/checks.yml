@@ -51,6 +51,8 @@ jobs:
           node-version: 20
       - name: Run Go tests on native OS
         run: go test ./...
+      - name: Test npm installation without Go on native OS
+        run: npm run test:install
       - name: Exercise CLI and daemon with local HTTP fixtures
         shell: bash
         env:
@@ -88,3 +90,5 @@ jobs:
           node-version: 20
       - name: Inspect npm package contents without publishing
         run: npm pack --dry-run --ignore-scripts
+      - name: Install a packed npm tarball without Go
+        run: npm run test:install

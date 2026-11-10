@@ -55,6 +55,10 @@ func TestSetupFromConfigIsHeadlessAndCreatesToolFreeAgent(t *testing.T) {
 			_, _ = io.WriteString(w, `{"data":[{"id":"qwen3:8b"}]}`)
 			return
 		}
+		if r.Method == http.MethodGet && (r.URL.Path == "/api/models" || r.URL.Path == "/api/agents") {
+			_, _ = io.WriteString(w, `[]`)
+			return
+		}
 		if got := r.Header.Get("Authorization"); got != "Bearer "+testToken {
 			t.Errorf("authorization header missing or wrong")
 		}
@@ -143,6 +147,9 @@ func TestHeadlessSetupAgainstActualDaemonAPI(t *testing.T) {
 	if err := Run([]string{"setup", "--yes", "--config", configPath, "--url", api.URL, "--data-dir", dataDir}, strings.NewReader(""), &out, io.Discard); err != nil {
 		t.Fatalf("actual-daemon headless setup: %v", err)
 	}
+	if err := Run([]string{"setup", "--yes", "--config", configPath, "--url", api.URL, "--data-dir", dataDir}, strings.NewReader(""), &out, io.Discard); err != nil {
+		t.Fatalf("rerunning setup should reuse saved model and agent: %v", err)
+	}
 	token, err := os.ReadFile(filepath.Join(dataDir, "api.token"))
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +206,13 @@ func TestSetupInteractiveReadsBothPromptsFromSameInput(t *testing.T) {
 			return
 		}
 		if r.URL.Path == "/api/models" {
-			_ = json.NewEncoder(w).Encode(modelConfig{ID: "m", Name: "ollama · local-model", Provider: "ollama", Model: "local-model"})
+			if r.Method == http.MethodGet {
+				_, _ = io.WriteString(w, `[]`)
+			} else {
+				_ = json.NewEncoder(w).Encode(modelConfig{ID: "m", Name: "ollama · local-model", Provider: "ollama", Model: "local-model"})
+			}
+		} else if r.URL.Path == "/api/agents" && r.Method == http.MethodGet {
+			_, _ = io.WriteString(w, `[]`)
 		} else {
 			_ = json.NewEncoder(w).Encode(agentConfig{ID: "a", Name: "Assistant", Model: "local-model"})
 		}
@@ -210,7 +223,7 @@ func TestSetupInteractiveReadsBothPromptsFromSameInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("interactive setup: %v", err)
 	}
-	if strings.Join(paths, ",") != "/v1/models,/api/models,/api/models/m/probe,/api/agents" {
+	if strings.Join(paths, ",") != "/v1/models,/api/models,/api/models,/api/models/m/probe,/api/agents,/api/agents" {
 		t.Fatalf("setup endpoints: %v", paths)
 	}
 	if !strings.Contains(stdout.String(), "Agent name [Assistant]") {
@@ -933,6 +946,10 @@ func TestSetupMultipleModelsUsesFirstOnEnterAndWithYes(t *testing.T) {
 		case "/v1/models":
 			_, _ = io.WriteString(w, `{"data":[{"id":"first-model"},{"id":"second-model"}]}`)
 		case "/api/models":
+			if r.Method == http.MethodGet {
+				_, _ = io.WriteString(w, `[]`)
+				return
+			}
 			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testToken {
 				t.Errorf("model request not authenticated: method=%s", r.Method)
 			}
@@ -948,6 +965,10 @@ func TestSetupMultipleModelsUsesFirstOnEnterAndWithYes(t *testing.T) {
 			probes++
 			_, _ = io.WriteString(w, `{"probe":{"score":100,"json_output":true,"single_tool":true,"tool_choice":true,"argument_accuracy":true,"restricted":false}}`)
 		case "/api/agents":
+			if r.Method == http.MethodGet {
+				_, _ = io.WriteString(w, `[]`)
+				return
+			}
 			agentsCreated++
 			_, _ = io.WriteString(w, `{"id":"agent-1","name":"Assistant","model":"first-model"}`)
 		default:
@@ -971,7 +992,7 @@ func TestSetupMultipleModelsUsesFirstOnEnterAndWithYes(t *testing.T) {
 			if err := Run(args, strings.NewReader(scenario.input), &output, io.Discard); err != nil {
 				t.Fatalf("setup failed: %v; output=%s", err, output.String())
 			}
-			if !strings.Contains(output.String(), "Next: ownbot") {
+			if !strings.Contains(output.String(), "ownbot daemon start --lan") {
 				t.Fatalf("setup missing next step: %s", output.String())
 			}
 		})
@@ -995,7 +1016,11 @@ func TestSetupDoesNotCreateAgentWhenAnyProbeCapabilityFails(t *testing.T) {
 		case "/api/status":
 			_, _ = io.WriteString(w, `{"ok":true,"service":"ownbot"}`)
 		case "/api/models":
-			_, _ = io.WriteString(w, `{"id":"m1","name":"local","model":"local-model"}`)
+			if r.Method == http.MethodGet {
+				_, _ = io.WriteString(w, `[]`)
+			} else {
+				_, _ = io.WriteString(w, `{"id":"m1","name":"local","model":"local-model"}`)
+			}
 		case "/api/models/m1/probe":
 			_, _ = io.WriteString(w, `{"probe":{"score":75,"json_output":true,"single_tool":true,"tool_choice":true,"argument_accuracy":false,"restricted":true}}`)
 		case "/api/agents":

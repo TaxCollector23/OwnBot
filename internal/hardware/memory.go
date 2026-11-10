@@ -60,6 +60,8 @@ func ReadMemoryInfo() MemoryInfo {
 			}
 		}
 		return MemoryInfo{TotalBytes: total, AvailableBytes: available, Kind: "physical RAM", Source: "sysctl hw.memsize; available estimate from vm_stat"}
+	case "windows":
+		return ReadWindowsMemoryInfo()
 	default:
 		return MemoryInfo{Kind: "physical RAM", Source: "unavailable on this platform"}
 	}
