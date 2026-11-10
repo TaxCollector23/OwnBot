@@ -36,6 +36,18 @@ node scripts/sandbox/record-demo.cjs
 
 The recording is written to `demo-site/scripts/explainer/output/ownbot-sandbox-demo.webm`, a git-ignored output directory. Set `OWNBOT_DEMO_VIDEO` to choose a different output path. The browser viewport is mobile-sized emulation, not a physical phone recording.
 
+### Record a terminal demo
+
+The terminal recorder runs the real CLI against the same isolated loopback daemon. It checks local diagnostics, starts a sample task, inspects and approves its pending write from the CLI, then resumes the run. The screen recording is a terminal-style WebM generated from those actual command results; the model and MCP responses come from deterministic fixtures.
+
+```sh
+OWNBOTD_BINARY=/tmp/ownbot-sandbox-daemon \
+OWNBOT_BINARY=/tmp/ownbot-sandbox-cli \
+node scripts/sandbox/record-terminal-demo.cjs
+```
+
+It writes `demo-site/scripts/explainer/output/ownbot-terminal-demo.webm`. Set `OWNBOT_TERMINAL_DEMO_VIDEO` to choose another path. This does not install model weights, contact a model provider, or make the sample note outside the in-memory MCP fixture.
+
 ## GitHub virtual sandbox
 
 The **Virtual sandbox** workflow starts a disposable GitHub-hosted Ubuntu VM, builds the real OwnBot CLI and daemon, runs the deterministic sandbox fixture smoke test, then runs `scripts/test-local-workflows.cjs` against the real binaries. Start it from **Actions → Virtual sandbox → Run workflow**, then choose the branch to test. It is manual-only and has a 15-minute job limit.
