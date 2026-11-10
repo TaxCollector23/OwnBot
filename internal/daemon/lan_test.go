@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,9 @@ func TestLANCertificateCanBeInstalledAsVerifiedLocalRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0077 != 0 {
+	// Windows does not expose POSIX file permission bits through Mode().Perm();
+	// access is controlled by the file's ACL instead.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		t.Fatalf("exported public certificate permissions too broad: %o", info.Mode().Perm())
 	}
 	profile, err := os.ReadFile(filepath.Join(dir, "lan.cert.mobileconfig"))
